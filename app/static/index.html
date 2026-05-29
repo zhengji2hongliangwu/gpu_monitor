@@ -6,13 +6,109 @@
     <title>系统资源监控 - 多 GPU & CPU</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f0f2f5; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
         .container { max-width: 1600px; margin: auto; }
-        .gauge-panel, .chart-container { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .metrics-grid { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; }
-        .metric-card { flex: 1; min-width: 150px; background: #f8f9fa; border-radius: 12px; padding: 15px; text-align: center; }
-        .metric-value { font-size: 2rem; font-weight: bold; margin: 10px 0; }
-        .metric-label { font-size: 0.9rem; color: #6c757d; margin-bottom: 5px; }
+        .gauge-panel, .chart-container { background: white; border-radius: 16px; padding: 24px; margin-bottom: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); backdrop-filter: blur(8px); }
+        .gauge-panel h2 { color: #2d3748; border-left: 4px solid #667eea; padding-left: 12px; margin-bottom: 20px; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+        .metric-card { 
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+            border-radius: 16px; 
+            padding: 20px; 
+            text-align: left;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.5);
+        }
+        .metric-card:hover { 
+            transform: translateY(-4px); 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        }
+        .metric-card-header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 15px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid rgba(102, 126, 234, 0.2);
+        }
+        .metric-card-title { 
+            font-size: 1.1rem; 
+            font-weight: 700; 
+            color: #2d3748;
+            margin: 0;
+        }
+        .gpu-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .metric-value { 
+            font-size: 2.5rem; 
+            font-weight: 800; 
+            margin: 10px 0; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .metric-label { 
+            font-size: 0.85rem; 
+            color: #718096; 
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+        .metric-grid { 
+            display: grid; 
+            grid-template-columns: repeat(2, 1fr); 
+            gap: 12px; 
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(0,0,0,0.05);
+        }
+        .metric-item { 
+            text-align: center; 
+            padding: 10px;
+            background: rgba(255,255,255,0.6);
+            border-radius: 10px;
+        }
+        .metric-item-value { 
+            font-size: 1.3rem; 
+            font-weight: 700; 
+            color: #4a5568;
+            margin-bottom: 4px;
+        }
+        .metric-item-label { 
+            font-size: 0.75rem; 
+            color: #a0aec0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .temp-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .temp-normal { background: #c6f6d5; color: #22543d; }
+        .temp-warning { background: #feebc8; color: #744210; }
+        .temp-danger { background: #fed7d7; color: #742a2a; }
+        .power-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .power-low { background: #48bb78; }
+        .power-medium { background: #ed8936; }
+        .power-high { background: #f56565; }
         .time-picker { display: flex; gap: 12px; align-items: flex-end; margin-bottom: 20px; flex-wrap: wrap; }
         .time-picker input, .time-picker select, .time-picker button { padding: 8px 12px; font-size: 1rem; }
         button { background-color: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; transition: 0.2s; }
@@ -49,22 +145,33 @@
         <h2>💻 系统 CPU & 内存 实时状态</h2>
         <div class="metrics-grid">
             <div class="metric-card">
+                <div class="metric-card-header">
+                    <h3 class="metric-card-title">CPU</h3>
+                    <span class="gpu-badge">处理器</span>
+                </div>
                 <div class="metric-label">CPU 使用率</div>
                 <div class="metric-value" id="cpu-util">--%</div>
             </div>
             <div class="metric-card">
+                <div class="metric-card-header">
+                    <h3 class="metric-card-title">内存</h3>
+                    <span class="gpu-badge">系统内存</span>
+                </div>
                 <div class="metric-label">内存使用率</div>
                 <div class="metric-value" id="mem-util-sys">--%</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">已用内存</div>
-                <div class="metric-value" id="mem-used-gb">-- GB</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">总内存</div>
-                <div class="metric-value" id="mem-total-gb">-- GB</div>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-item-value" id="mem-used-gb">-- GB</div>
+                        <div class="metric-item-label">已用</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-item-value" id="mem-total-gb">-- GB</div>
+                        <div class="metric-item-label">总计</div>
+                    </div>
+                </div>
             </div>
         </div>
+        <div class="refresh-note" id="cpu-update-time"></div>
     </div>
 
     <div class="chart-container">
@@ -391,21 +498,66 @@
             cardsContainer.innerHTML = '';
             
             data.gpus.forEach(gpu => {
+                // 计算温度状态
+                let tempClass = 'temp-normal';
+                if (gpu.temperature > 80) {
+                    tempClass = 'temp-danger';
+                } else if (gpu.temperature > 60) {
+                    tempClass = 'temp-warning';
+                }
+                
+                // 计算功耗状态
+                let powerClass = 'power-low';
+                const powerRatio = gpu.power_draw / gpu.power_limit;
+                if (powerRatio > 0.8) {
+                    powerClass = 'power-high';
+                } else if (powerRatio > 0.5) {
+                    powerClass = 'power-medium';
+                }
+                
                 const cardHtml = `
                     <div class="metric-card">
-                        <div class="metric-label">GPU ${gpu.gpu_id} - ${gpu.gpu_name}</div>
-                        <div class="metric-value">${gpu.utilization_gpu}%</div>
-                        <div style="font-size:0.8rem;color:#666;">使用率</div>
-                        <div style="margin-top:10px;font-size:1.2rem;color:#007bff;">${gpu.memory_util.toFixed(1)}%</div>
-                        <div style="font-size:0.8rem;color:#666;">显存</div>
-                        <div style="margin-top:8px;font-size:1rem;">${gpu.temperature}°C / ${gpu.power_draw.toFixed(1)}W</div>
+                        <div class="metric-card-header">
+                            <h3 class="metric-card-title">GPU ${gpu.gpu_id}</h3>
+                            <span class="gpu-badge">${gpu.gpu_name}</span>
+                        </div>
+                        
+                        <div class="metric-label">GPU 使用率</div>
+                        <div class="metric-value">${gpu.utilization_gpu.toFixed(1)}%</div>
+                        
+                        <div class="metric-grid">
+                            <div class="metric-item">
+                                <div class="metric-item-value">${gpu.memory_used.toFixed(1)} MB</div>
+                                <div class="metric-item-label">已用显存</div>
+                            </div>
+                            <div class="metric-item">
+                                <div class="metric-item-value">${gpu.memory_total.toFixed(0)} MB</div>
+                                <div class="metric-item-label">总显存</div>
+                            </div>
+                            <div class="metric-item">
+                                <div class="metric-item-value">${gpu.memory_util.toFixed(1)}%</div>
+                                <div class="metric-item-label">显存使用率</div>
+                            </div>
+                            <div class="metric-item">
+                                <div class="metric-item-value"><span class="temp-badge ${tempClass}">${gpu.temperature}°C</span></div>
+                                <div class="metric-item-label">温度</div>
+                            </div>
+                            <div class="metric-item">
+                                <div class="metric-item-value"><span class="power-indicator ${powerClass}"></span>${gpu.power_draw.toFixed(1)}W</div>
+                                <div class="metric-item-label">实时功耗</div>
+                            </div>
+                            <div class="metric-item">
+                                <div class="metric-item-value">${gpu.power_limit.toFixed(0)}W</div>
+                                <div class="metric-item-label">额定功率</div>
+                            </div>
+                        </div>
                     </div>
                 `;
                 cardsContainer.innerHTML += cardHtml;
             });
             
             const lastUpdate = data.last_update;
-            document.getElementById('gpu-update-time').innerHTML = '最后更新：' + formatTimeFromBackend(lastUpdate);
+            document.getElementById('gpu-update-time').innerHTML = '🕐 最后更新：' + formatTimeFromBackend(lastUpdate);
 
             realtimeData.push({
                 timestamp: lastUpdate,
@@ -433,7 +585,13 @@
             document.getElementById('mem-util-sys').innerHTML = data.current.memory_util_percent.toFixed(1) + '%';
             document.getElementById('mem-used-gb').innerHTML = data.current.memory_used_gb.toFixed(1) + ' GB';
             document.getElementById('mem-total-gb').innerHTML = data.current.memory_total_gb.toFixed(1) + ' GB';
-        } catch(e) { console.error('CPU/内存获取失败', e); }
+            
+            // 更新 CPU 最后更新时间
+            const lastUpdate = data.last_update;
+            document.getElementById('cpu-update-time').innerHTML = '🕐 最后更新：' + formatTimeFromBackend(lastUpdate);
+        } catch(e) { 
+            console.error('CPU/内存获取失败', e); 
+        }
     }
 
     function updateRealtimeChart() {

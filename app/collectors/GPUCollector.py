@@ -11,7 +11,7 @@ class NvidiaSmiCollector(BaseMetricsCollector):
         try:
             cmd = [
                 "nvidia-smi",
-                "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+                "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit",
                 "--format=csv,noheader,nounits"
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -23,7 +23,7 @@ class NvidiaSmiCollector(BaseMetricsCollector):
             lines = output.split('\n')
             for line in lines:
                 parts = [x.strip() for x in line.split(',')]
-                if len(parts) < 7:
+                if len(parts) < 8:
                     continue
 
                 idx = int(parts[0])
@@ -33,6 +33,7 @@ class NvidiaSmiCollector(BaseMetricsCollector):
                 mem_total = float(parts[4])
                 temp = float(parts[5])
                 power = float(parts[6])
+                power_limit = float(parts[7])
 
                 mem_util = (mem_used / mem_total) * 100 if mem_total > 0 else 0.0
 
@@ -46,6 +47,7 @@ class NvidiaSmiCollector(BaseMetricsCollector):
                     "memory_util": mem_util,
                     "temperature": temp,
                     "power_draw": power,
+                    "power_limit": power_limit,
                 })
 
             return gpu_metrics

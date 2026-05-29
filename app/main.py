@@ -225,6 +225,7 @@ async def get_history(
                     'memory_util': sum(s.memory_util for s in window) / len(window),
                     'temperature': sum(s.temperature for s in window) / len(window),
                     'power_draw': sum(s.power_draw for s in window) / len(window),
+                    'power_limit': window[0].power_limit,
                     'timestamp': window[len(window)//2].timestamp
                 }
                 downsampled_stats.append(type(gpu_stat_list[0])(**avg_stat))
@@ -254,6 +255,7 @@ async def get_history(
                     "memory_util": sum(s.memory_util for s in gpu_stats) / len(gpu_stats),
                     "temperature": sum(s.temperature for s in gpu_stats) / len(gpu_stats),
                     "power_draw": sum(s.power_draw for s in gpu_stats) / len(gpu_stats),
+                    "power_limit": gpu_stats[0].power_limit,  # 使用第一个 GPU 的功率限制
                     "timestamp": f"{time_key.strftime('%Y-%m-%dT%H:%M:%S')}+08:00"
                 }
                 
@@ -293,6 +295,7 @@ async def get_history(
                 "memory_util": stat.memory_util,
                 "temperature": stat.temperature,
                 "power_draw": stat.power_draw,
+                "power_limit": stat.power_limit,
                 "timestamp": f"{stat.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}+08:00"
             }
             for stat in stats

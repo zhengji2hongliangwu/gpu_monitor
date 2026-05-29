@@ -16,6 +16,7 @@ class GPUStat(Base):
     memory_util = Column(Float)
     temperature = Column(Float)
     power_draw = Column(Float)
+    power_limit = Column(Float)
 
 
 class CPUStat(Base):

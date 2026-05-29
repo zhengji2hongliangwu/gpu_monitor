@@ -70,6 +70,15 @@ uvicorn app.main:app --host 0.0.0.0 --port 8010 --reload
 
 访问 `http://localhost:8010` 查看监控页面。
 
+### 方法 3：docker
+```bash
+chmod +x build_images.sh
+./build_images.sh
+
+docker-compose up -d # 启动
+docker-compose down # 停止
+```
+
 ## 配置说明
 
 ### 基础配置

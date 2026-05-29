@@ -1,0 +1,1 @@
+docker build -t registry.cn-hangzhou.aliyuncs.com/jizheng-open/gpu-monitor-nvidia:latest -f docker/Dockerfile .

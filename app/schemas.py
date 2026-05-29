@@ -13,6 +13,7 @@ class GPUStatBase(BaseModel):
     memory_util: float
     temperature: float
     power_draw: float
+    power_limit: float
 
 
 class GPUStatCreate(GPUStatBase):
