@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  gpu-monitor:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: gpu-monitor
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+    volumes:
+      # 挂载数据目录
+      - ./data:/gpu_monitor/data
+      # 挂载日志目录
+      - ./logs:/gpu_monitor/logs
+      # 挂载 nvidia-smi 工具（可选，需要 NVIDIA GPU）
+      - /usr/bin/nvidia-smi:/usr/bin/nvidia-smi
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+    environment:
+      # 数据库配置
+      - DATABASE_DIR=/gpu_monitor/data
+      - DATABASE_PATH=/gpu_monitor/data/metrics.db
+      # 日志配置
+      - LOG_DIR=/gpu_monitor/logs
+      - LOG_FILE=/gpu_monitor/logs/server_used_rate.log
+      # 服务配置
+      - HOST=0.0.0.0
+      - PORT=8010
+      # 数据采集配置
+      - COLLECTION_INTERVAL=5
+      # 数据保留策略
+      - DATA_RETENTION_DAYS=395
+      - DATABASE_MAX_SIZE_BYTES=5368709120
+      - AUTO_CLEANUP_ENABLED=true
+      - CLEANUP_INTERVAL_HOURS=24
+    # GPU 支持（可选，需要 NVIDIA GPU 和 nvidia-docker）
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - monitor-network
+
+networks:
+  monitor-network:
+    driver: bridge

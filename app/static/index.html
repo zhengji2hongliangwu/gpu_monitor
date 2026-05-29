@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统资源监控 - 多 GPU & CPU</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f0f2f5; }
+        .container { max-width: 1600px; margin: auto; }
+        .gauge-panel, .chart-container { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .metrics-grid { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; }
+        .metric-card { flex: 1; min-width: 150px; background: #f8f9fa; border-radius: 12px; padding: 15px; text-align: center; }
+        .metric-value { font-size: 2rem; font-weight: bold; margin: 10px 0; }
+        .metric-label { font-size: 0.9rem; color: #6c757d; margin-bottom: 5px; }
+        .time-picker { display: flex; gap: 12px; align-items: flex-end; margin-bottom: 20px; flex-wrap: wrap; }
+        .time-picker input, .time-picker select, .time-picker button { padding: 8px 12px; font-size: 1rem; }
+        button { background-color: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; transition: 0.2s; }
+        button:hover { background-color: #0056b3; }
+        h2 { margin-top: 0; }
+        .refresh-note { font-size: 0.8rem; color: #6c757d; text-align: right; margin-top: 10px; }
+        .control-panel { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
+        .control-panel label { font-weight: 500; }
+        .control-panel select { padding: 6px 12px; border-radius: 4px; border: 1px solid #ced4da; }
+        .gpu-selector { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+        .param-selector { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+        .gpu-checkbox, .param-checkbox { display: flex; align-items: center; gap: 5px; background: #f8f9fa; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+        .gpu-checkbox input, .param-checkbox input { cursor: pointer; }
+        .avg-checkbox { background: #e3f2fd !important; }
+        .param-selected { background: #d4edda !important; }
+        .data-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9rem; }
+        .data-table th, .data-table td { border: 1px solid #dee2e6; padding: 8px; text-align: center; }
+        .data-table th { background-color: #f8f9fa; font-weight: 600; }
+        .data-table tr:nth-child(even) { background-color: #f8f9fa; }
+        .table-container { max-height: 300px; overflow-y: auto; margin-top: 15px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>📊 系统资源实时监控</h1>
+
+    <div class="gauge-panel">
+        <h2>🎮 GPU 实时状态（每 5 秒刷新）</h2>
+        <div id="gpu-cards" class="metrics-grid"></div>
+        <div class="refresh-note" id="gpu-update-time"></div>
+    </div>
+
+    <div class="gauge-panel">
+        <h2>💻 系统 CPU & 内存 实时状态</h2>
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">CPU 使用率</div>
+                <div class="metric-value" id="cpu-util">--%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">内存使用率</div>
+                <div class="metric-value" id="mem-util-sys">--%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">已用内存</div>
+                <div class="metric-value" id="mem-used-gb">-- GB</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">总内存</div>
+                <div class="metric-value" id="mem-total-gb">-- GB</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <h2>📈 GPU 实时趋势（最近 5 分钟）</h2>
+        <div class="control-panel">
+            <label>展示模式：</label>
+            <select id="gpu-display-mode" onchange="onDisplayModeChange()">
+                <option value="average">平均值</option>
+                <option value="separate">分别展示</option>
+            </select>
+        </div>
+        <div id="gpu-selector-container" class="gpu-selector" style="display:none;"></div>
+        <div id="param-selector-container" class="param-selector"></div>
+        <div id="realtime-chart" style="height: 400px;"></div>
+        <div id="realtime-table-container" class="table-container"></div>
+    </div>
+
+    <div class="chart-container">
+        <h2>📅 GPU 历史数据查询</h2>
+        <div class="control-panel">
+            <label>展示模式：</label>
+            <select id="history-display-mode" onchange="onHistoryDisplayModeChange()">
+                <option value="average">平均值</option>
+                <option value="separate">分别展示</option>
+            </select>
+        </div>
+        <div id="history-gpu-selector-container" class="gpu-selector" style="display:none;"></div>
+        <div id="history-param-selector-container" class="param-selector"></div>
+        <div class="time-picker">
+            <div>开始时间：<input type="datetime-local" id="start-time"></div>
+            <div>结束时间：<input type="datetime-local" id="end-time"></div>
+            <button id="query-history">查询</button>
+        </div>
+        <div id="history-chart" style="height: 400px;"></div>
+        <div id="history-table-container" class="table-container"></div>
+    </div>
+
+    <div class="chart-container">
+        <h2>📊 CPU/内存 历史数据查询</h2>
+        <div class="time-picker">
+            <div>开始时间：<input type="datetime-local" id="cpu-start-time"></div>
+            <div>结束时间：<input type="datetime-local" id="cpu-end-time"></div>
+            <button id="query-cpu-history">查询</button>
+        </div>
+        <div id="cpu-history-chart" style="height: 400px;"></div>
+    </div>
+</div>
+
+<script>
+    let gpuIds = [];
+    let realtimeData = [];
+    let realtimeChart = null, historyChart = null, cpuHistoryChart = null;
+    let historyDisplayMode = 'average';
+    let selectedParams = ['utilization', 'memory', 'temperature'];
+    let lastQueryData = null; // 保存最后一次查询的数据
+    let lastQueryParams = null; // 保存最后一次查询的参数
+
+    const paramConfig = {
+        'utilization': { label: '使用率', unit: '%', key: 'utilization_gpu' },
+        'memory': { label: '显存使用率', unit: '%', key: 'memory_util' },
+        'temperature': { label: '温度', unit: '°C', key: 'temperature' },
+        'power': { label: '功耗', unit: 'W', key: 'power_draw' }
+    };
+
+    function formatTimeFromBackend(timestampStr) { 
+        // 后端返回的是带时区的 ISO 格式：2026-05-29T14:15:00+08:00
+        // 直接解析即可
+        const date = new Date(timestampStr);
+        
+        // 检查是否解析成功
+        if (isNaN(date.getTime())) {
+            console.error('时间解析失败:', timestampStr);
+            return 'Invalid Date';
+        }
+        
+        return date.toLocaleTimeString('zh-CN', { 
+            hour12: false,
+            timeZone: 'Asia/Shanghai'
+        }); 
+    }
+
+    function formatDateTime(d) {
+        // 格式化为 datetime-local 输入需要的格式 (YYYY-MM-DDTHH:mm)
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hours = String(d.getHours()).padStart(2, '0');
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+
+    function toISOLocalString(date) {
+        // 将本地时间转换为带时区偏移的 ISO 字符串（北京时间 UTC+8）
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        // 添加北京时间时区偏移 (+08:00)
+        // return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+08:00`;
+        return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}%2B08:00`;
+    }
+
+    function parseBeijingTime(timeStr) {
+        // 解析后端返回的北京时间字符串
+        // 后端返回的是带时区信息的 ISO 字符串，JavaScript 会自动处理
+        const date = new Date(timeStr);
+        return date;
+    }
+
+    async function fetchGPUIds() {
+        try {
+            const res = await fetch('/api/gpu/ids');
+            if (!res.ok) throw new Error();
+            const data = await res.json();
+            gpuIds = data.gpu_ids || [];
+            initGpuSelectors();
+            initParamSelectors();
+        } catch(e) { 
+            console.error('获取 GPU ID 列表失败', e);
+            gpuIds = [];  // 确保即使失败也有默认值
+        }
+    }
+
+    function initGpuSelectors() {
+        const container = document.getElementById('gpu-selector-container');
+        const historyContainer = document.getElementById('history-gpu-selector-container');
+        
+        // 实时图表 GPU 选择器 - 默认选中平均值
+        let html = '<label class="gpu-checkbox avg-checkbox"><input type="checkbox" checked onchange="onGpuSelectionChange()"> 平均值</label>';
+        gpuIds.forEach(id => {
+            html += `<label class="gpu-checkbox"><input type="checkbox" value="${id}" onchange="onGpuSelectionChange()"> GPU ${id}</label>`;
+        });
+        
+        container.innerHTML = html;
+        
+        // 历史图表 GPU 选择器 - 默认选中平均值
+        let historyHtml = '<label class="gpu-checkbox avg-checkbox"><input type="checkbox" checked onchange="onHistoryGpuSelectionChange()"> 平均值</label>';
+        gpuIds.forEach(id => {
+            historyHtml += `<label class="gpu-checkbox"><input type="checkbox" value="${id}" onchange="onHistoryGpuSelectionChange()"> GPU ${id}</label>`;
+        });
+        historyContainer.innerHTML = historyHtml;
+    }
+
+    function initParamSelectors() {
+        const container = document.getElementById('param-selector-container');
+        const historyContainer = document.getElementById('history-param-selector-container');
+        
+        let html = '';
+        Object.keys(paramConfig).forEach(key => {
+            const checked = selectedParams.includes(key) ? 'checked' : '';
+            // 实时图表参数选择器
+            html += `<label class="param-checkbox ${checked ? 'param-selected' : ''}">
+                <input type="checkbox" value="${key}" ${checked} onchange="onParamSelectionChange('${key}')">
+                ${paramConfig[key].label}
+            </label>`;
+        });
+        
+        container.innerHTML = html;
+        
+        // 历史图表参数选择器 - 使用不同的事件处理函数
+        let historyHtml = '';
+        Object.keys(paramConfig).forEach(key => {
+            const checked = selectedParams.includes(key) ? 'checked' : '';
+            historyHtml += `<label class="param-checkbox ${checked ? 'param-selected' : ''}">
+                <input type="checkbox" value="${key}" ${checked} onchange="onHistoryParamSelectionChange('${key}')">
+                ${paramConfig[key].label}
+            </label>`;
+        });
+        historyContainer.innerHTML = historyHtml;
+    }
+
+    function onGpuSelectionChange() {
+        const checkboxes = document.querySelectorAll('#gpu-selector-container input[type="checkbox"]');
+        const avgCheckbox = checkboxes[0];
+        const gpuCheckboxes = Array.from(checkboxes).slice(1);
+        
+        if (avgCheckbox.checked) {
+            // 选中平均值，禁用所有 GPU 复选框
+            gpuCheckboxes.forEach(cb => cb.disabled = true);
+        } else {
+            // 未选平均值，启用所有 GPU 复选框
+            gpuCheckboxes.forEach(cb => cb.disabled = false);
+        }
+        
+        updateRealtimeChart();
+    }
+
+    function onParamSelectionChange(paramKey) {
+        const checkboxes = document.querySelectorAll(`#param-selector-container input[value="${paramKey}"]`);
+        const historyCheckboxes = document.querySelectorAll(`#history-param-selector-container input[value="${paramKey}"]`);
+        
+        checkboxes.forEach(cb => {
+            if (cb.checked) {
+                cb.parentElement.classList.add('param-selected');
+                if (!selectedParams.includes(paramKey)) {
+                    selectedParams.push(paramKey);
+                }
+            } else {
+                cb.parentElement.classList.remove('param-selected');
+                selectedParams = selectedParams.filter(p => p !== paramKey);
+            }
+        });
+        
+        historyCheckboxes.forEach(cb => {
+            if (cb.checked) {
+                cb.parentElement.classList.add('param-selected');
+            } else {
+                cb.parentElement.classList.remove('param-selected');
+            }
+        });
+        
+        if (selectedParams.length === 0) {
+            selectedParams = ['utilization'];
+            checkboxes.forEach(cb => {
+                if (cb.value === 'utilization') {
+                    cb.checked = true;
+                    cb.parentElement.classList.add('param-selected');
+                }
+            });
+        }
+        
+        updateRealtimeChart();
+    }
+
+    function onDisplayModeChange() {
+        const mode = document.getElementById('gpu-display-mode').value;
+        const container = document.getElementById('gpu-selector-container');
+        
+        if (mode === 'average') {
+            container.style.display = 'none';
+            displayMode = 'average';
+            selectedGpus = [];
+        } else {
+            container.style.display = 'flex';
+            displayMode = 'separate';
+            const checkboxes = document.querySelectorAll('#gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
+            selectedGpus = Array.from(checkboxes).filter(cb => cb.checked).map(cb => parseInt(cb.value));
+            
+            // 如果没有选中的 GPU，默认选中第一个
+            if (selectedGpus.length === 0 && checkboxes.length > 0) {
+                checkboxes[0].checked = true;
+                selectedGpus = [parseInt(checkboxes[0].value)];
+            }
+        }
+        updateRealtimeChart();
+    }
+
+    function onHistoryDisplayModeChange() {
+        const mode = document.getElementById('history-display-mode').value;
+        const container = document.getElementById('history-gpu-selector-container');
+        
+        if (mode === 'average') {
+            container.style.display = 'none';
+            historyDisplayMode = 'average';
+        } else {
+            container.style.display = 'flex';
+            historyDisplayMode = 'separate';
+        }
+        
+        // 如果有已查询的数据，重新渲染图表
+        if (lastQueryData) {
+            renderHistoryChart(lastQueryData);
+        }
+    }
+
+    function onHistoryParamSelectionChange(paramKey) {
+        const checkboxes = document.querySelectorAll(`#history-param-selector-container input[value="${paramKey}"]`);
+        
+        checkboxes.forEach(cb => {
+            if (cb.checked) {
+                cb.parentElement.classList.add('param-selected');
+                if (!selectedParams.includes(paramKey)) {
+                    selectedParams.push(paramKey);
+                }
+            } else {
+                cb.parentElement.classList.remove('param-selected');
+                selectedParams = selectedParams.filter(p => p !== paramKey);
+            }
+        });
+        
+        if (selectedParams.length === 0) {
+            selectedParams = ['utilization'];
+            checkboxes.forEach(cb => {
+                if (cb.value === 'utilization') {
+                    cb.checked = true;
+                    cb.parentElement.classList.add('param-selected');
+                }
+            });
+        }
+        
+        // 如果有已查询的数据，重新渲染图表
+        if (lastQueryData) {
+            renderHistoryChart(lastQueryData);
+        }
+    }
+    
+    // 历史 GPU 选择变化时的处理
+    function onHistoryGpuSelectionChange() {
+        const checkboxes = document.querySelectorAll('#history-gpu-selector-container input[type="checkbox"]');
+        const avgCheckbox = checkboxes[0];
+        const gpuCheckboxes = Array.from(checkboxes).slice(1);
+        
+        if (avgCheckbox.checked) {
+            gpuCheckboxes.forEach(cb => cb.disabled = true);
+        } else {
+            gpuCheckboxes.forEach(cb => cb.disabled = false);
+        }
+        
+        // 如果有已查询的数据，重新渲染图表
+        if (lastQueryData) {
+            renderHistoryChart(lastQueryData);
+        }
+    }
+
+    async function fetchGPUCurrent() {
+        try {
+            const res = await fetch('/api/gpu/current');
+            if (!res.ok) throw new Error();
+            const data = await res.json();
+            
+            const cardsContainer = document.getElementById('gpu-cards');
+            cardsContainer.innerHTML = '';
+            
+            data.gpus.forEach(gpu => {
+                const cardHtml = `
+                    <div class="metric-card">
+                        <div class="metric-label">GPU ${gpu.gpu_id} - ${gpu.gpu_name}</div>
+                        <div class="metric-value">${gpu.utilization_gpu}%</div>
+                        <div style="font-size:0.8rem;color:#666;">使用率</div>
+                        <div style="margin-top:10px;font-size:1.2rem;color:#007bff;">${gpu.memory_util.toFixed(1)}%</div>
+                        <div style="font-size:0.8rem;color:#666;">显存</div>
+                        <div style="margin-top:8px;font-size:1rem;">${gpu.temperature}°C / ${gpu.power_draw.toFixed(1)}W</div>
+                    </div>
+                `;
+                cardsContainer.innerHTML += cardHtml;
+            });
+            
+            const lastUpdate = data.last_update;
+            document.getElementById('gpu-update-time').innerHTML = '最后更新：' + formatTimeFromBackend(lastUpdate);
+
+            realtimeData.push({
+                timestamp: lastUpdate,
+                gpus: {}
+            });
+            
+            data.gpus.forEach(gpu => {
+                realtimeData[realtimeData.length - 1].gpus[gpu.gpu_id] = gpu;
+            });
+            
+            if (realtimeData.length > 60) {
+                realtimeData.shift();
+            }
+            
+            updateRealtimeChart();
+        } catch(e) { console.error('GPU 获取失败', e); }
+    }
+
+    async function fetchCpuMem() {
+        try {
+            const res = await fetch('/api/system/cpu_mem');
+            if (!res.ok) throw new Error();
+            const data = await res.json();
+            document.getElementById('cpu-util').innerHTML = data.current.cpu_util_percent.toFixed(1) + '%';
+            document.getElementById('mem-util-sys').innerHTML = data.current.memory_util_percent.toFixed(1) + '%';
+            document.getElementById('mem-used-gb').innerHTML = data.current.memory_used_gb.toFixed(1) + ' GB';
+            document.getElementById('mem-total-gb').innerHTML = data.current.memory_total_gb.toFixed(1) + ' GB';
+        } catch(e) { console.error('CPU/内存获取失败', e); }
+    }
+
+    function updateRealtimeChart() {
+        if (!realtimeChart) return;
+        if (realtimeData.length === 0) return;
+        if (selectedParams.length === 0) return;
+        
+        const xAxisData = realtimeData.map(d => formatTimeFromBackend(d.timestamp));
+        
+        let series = [];
+        let legendData = [];
+        
+        // 检查是否选中了"平均值"选项
+        const avgCheckbox = document.querySelector('#gpu-selector-container .avg-checkbox input[type="checkbox"]');
+        const showAverage = avgCheckbox && avgCheckbox.checked;
+        
+        if (showAverage) {
+            // 显示所有 GPU 的平均值
+            selectedParams.forEach(paramKey => {
+                const config = paramConfig[paramKey];
+                const data = realtimeData.map(d => {
+                    const gpus = Object.values(d.gpus).filter(g => g && g.gpu_id !== -1);
+                    if (gpus.length === 0) return 0;
+                    const sum = gpus.reduce((acc, g) => acc + (g[config.key] || 0), 0);
+                    return sum / gpus.length;
+                });
+                
+                series.push({
+                    name: `${config.label} (平均)`,
+                    type: 'line',
+                    data: data,
+                    smooth: true
+                });
+                legendData.push(`${config.label} (平均)`);
+            });
+        } else {
+            // 显示选中的 GPU 的每个参数
+            const gpuCheckboxes = document.querySelectorAll('#gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
+            const selectedGpuIds = Array.from(gpuCheckboxes)
+                .filter(cb => cb.checked)
+                .map(cb => parseInt(cb.value));
+            
+            // 如果没有选中任何 GPU，使用所有 GPU
+            if (selectedGpuIds.length === 0) {
+                selectedGpuIds.push(...gpuIds);
+            }
+            
+            selectedGpuIds.forEach(gpuId => {
+                selectedParams.forEach(paramKey => {
+                    const config = paramConfig[paramKey];
+                    const data = realtimeData.map(d => d.gpus[gpuId]?.[config.key] || 0);
+                    
+                    series.push({
+                        name: `GPU${gpuId} - ${config.label}`,
+                        type: 'line',
+                        data: data,
+                        smooth: true
+                    });
+                    legendData.push(`GPU${gpuId} - ${config.label}`);
+                });
+            });
+        }
+        
+        realtimeChart.setOption({
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'cross' },
+                formatter: function(params) {
+                    let result = params[0].name + '<br/>';
+                    params.forEach(param => {
+                        result += `${param.seriesName}: ${param.value} ${param.seriesName.includes('使用率') || param.seriesName.includes('显存') ? '%' : param.seriesName.includes('温度') ? '°C' : 'W'}<br/>`;
+                    });
+                    return result;
+                }
+            },
+            legend: { data: legendData },
+            xAxis: { data: xAxisData },
+            yAxis: { type: 'value', name: '值' },
+            series: series
+        }, { notMerge: true });
+        
+        // 更新实时数据表格
+        updateRealtimeTable();
+    }
+
+    function updateRealtimeTable() {
+        const container = document.getElementById('realtime-table-container');
+        
+        if (realtimeData.length === 0) {
+            container.innerHTML = '<p style="text-align:center;color:#999;">暂无数据</p>';
+            return;
+        }
+        
+        // 获取最新的数据点
+        const latestData = realtimeData[realtimeData.length - 1];
+        const timestamp = latestData.timestamp;
+        const timeStr = formatTime(timestamp);
+        
+        let tableHtml = `<div style="margin-bottom:10px;color:#666;font-size:0.9rem;">最后更新：${timeStr}</div>`;
+        tableHtml += '<table class="data-table"><thead><tr>';
+        tableHtml += '<th>GPU ID</th>';
+        selectedParams.forEach(paramKey => {
+            const config = paramConfig[paramKey];
+            tableHtml += `<th>${config.label}</th>`;
+        });
+        tableHtml += '</tr></thead><tbody>';
+        
+        // 检查是否显示平均值
+        const avgCheckbox = document.querySelector('#gpu-selector-container .avg-checkbox input[type="checkbox"]');
+        const showAverage = avgCheckbox && avgCheckbox.checked;
+        
+        if (showAverage) {
+            // 显示所有 GPU 的平均值
+            tableHtml += `<tr style="background-color:#f0f0f0;font-weight:bold;">`;
+            tableHtml += `<td>平均值</td>`;
+            selectedParams.forEach(paramKey => {
+                const config = paramConfig[paramKey];
+                const gpus = Object.values(latestData.gpus).filter(g => g && g.gpu_id !== -1);
+                if (gpus.length > 0) {
+                    const sum = gpus.reduce((acc, g) => acc + (g[config.key] || 0), 0);
+                    const avg = sum / gpus.length;
+                    tableHtml += `<td>${avg.toFixed(1)}${config.unit}</td>`;
+                } else {
+                    tableHtml += `<td>-</td>`;
+                }
+            });
+            tableHtml += `</tr>`;
+        } else {
+            // 显示选中的 GPU 数据
+            const gpuCheckboxes = document.querySelectorAll('#gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
+            const selectedGpuIds = Array.from(gpuCheckboxes)
+                .filter(cb => cb.checked)
+                .map(cb => parseInt(cb.value));
+            
+            // 如果没有选中任何 GPU，使用所有 GPU
+            if (selectedGpuIds.length === 0) {
+                selectedGpuIds.push(...gpuIds);
+            }
+            
+            selectedGpuIds.sort((a, b) => a - b).forEach(gpuId => {
+                const gpu = latestData.gpus[gpuId];
+                if (gpu) {
+                    tableHtml += `<tr>`;
+                    tableHtml += `<td>GPU ${gpuId}</td>`;
+                    selectedParams.forEach(paramKey => {
+                        const config = paramConfig[paramKey];
+                        const value = gpu[config.key] || 0;
+                        tableHtml += `<td>${value.toFixed(1)}${config.unit}</td>`;
+                    });
+                    tableHtml += `</tr>`;
+                }
+            });
+        }
+        
+        tableHtml += '</tbody></table>';
+        container.innerHTML = tableHtml;
+    }
+
+    function initRealtimeChart() {
+        const dom = document.getElementById('realtime-chart');
+        realtimeChart = echarts.init(dom);
+        realtimeChart.setOption({
+            tooltip: { trigger: 'axis' },
+            legend: { data: [] },
+            xAxis: { type: 'category', name: '时间' },
+            yAxis: { type: 'value', name: '值' },
+        });
+    }
+
+    function renderHistoryChart(data) {
+        console.log('开始渲染图表，数据条数:', data.length);
+        console.log('当前模式:', historyDisplayMode);
+        console.log('选中参数:', selectedParams);
+        
+        if (!data || data.length === 0) {
+            console.log('没有数据可渲染');
+            return;
+        }
+        
+        // 初始化图表
+        if (!historyChart) {
+            historyChart = echarts.init(document.getElementById('history-chart'));
+            console.log('初始化图表实例');
+        }
+        
+        // 按 GPU ID 分组数据
+        const gpuDataMap = {};
+        data.forEach(d => {
+            if (!gpuDataMap[d.gpu_id]) {
+                gpuDataMap[d.gpu_id] = [];
+            }
+            gpuDataMap[d.gpu_id].push(d);
+        });
+        
+        console.log('GPU 分组:', Object.keys(gpuDataMap));
+        
+        // 按时间排序每个 GPU 的数据
+        Object.keys(gpuDataMap).forEach(gpuId => {
+            gpuDataMap[gpuId].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        });
+        
+        // 使用第一个 GPU 的时间轴
+        const firstGpuId = Object.keys(gpuDataMap)[0];
+        const xAxisData = gpuDataMap[firstGpuId].map(d => formatTimeFromBackend(d.timestamp));
+        
+        console.log('X 轴数据条数:', xAxisData.length);
+        
+        let series = [];
+        let legendData = [];
+        
+        // 根据展示模式构建 series
+        if (historyDisplayMode === 'average') {
+            // 平均值模式：所有 GPU 已经合并，直接显示
+            console.log('平均值模式');
+            selectedParams.forEach(paramKey => {
+                const config = paramConfig[paramKey];
+                const chartData = data.map(d => {
+                    const val = d[config.key];
+                    return val !== undefined ? val : 0;
+                });
+                
+                series.push({
+                    name: `${config.label} (平均)`,
+                    type: 'line',
+                    data: chartData,
+                    smooth: true
+                });
+                legendData.push(`${config.label} (平均)`);
+            });
+        } else {
+            // 分别展示模式
+            console.log('分别展示模式');
+            
+            // 检查是否选中了"平均值"选项
+            const avgCheckbox = document.querySelector('#history-gpu-selector-container .avg-checkbox input[type="checkbox"]');
+            const showAverage = avgCheckbox && avgCheckbox.checked;
+            
+            if (showAverage) {
+                // 显示选中 GPU 的平均值
+                console.log('显示选中 GPU 的平均值');
+                
+                // 获取选中的 GPU ID
+                const gpuCheckboxes = document.querySelectorAll('#history-gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
+                const selectedGpuIds = Array.from(gpuCheckboxes)
+                    .filter(cb => cb.checked)
+                    .map(cb => parseInt(cb.value));
+                
+                console.log('选中的 GPU IDs:', selectedGpuIds);
+                
+                // 如果没有选中任何 GPU，使用所有 GPU
+                if (selectedGpuIds.length === 0) {
+                    selectedGpuIds.push(...Object.keys(gpuDataMap).map(id => parseInt(id)));
+                }
+                
+                // 计算每个时间点的平均值
+                selectedParams.forEach(paramKey => {
+                    const config = paramConfig[paramKey];
+                    const chartData = xAxisData.map((_, idx) => {
+                        let sum = 0;
+                        let count = 0;
+                        selectedGpuIds.forEach(gpuId => {
+                            if (gpuDataMap[gpuId] && gpuDataMap[gpuId][idx]) {
+                                sum += gpuDataMap[gpuId][idx][config.key] || 0;
+                                count++;
+                            }
+                        });
+                        return count > 0 ? sum / count : 0;
+                    });
+                    
+                    series.push({
+                        name: `${config.label} (平均)`,
+                        type: 'line',
+                        data: chartData,
+                        smooth: true
+                    });
+                    legendData.push(`${config.label} (平均)`);
+                });
+            } else {
+                // 显示每个 GPU 的每个参数
+                console.log('显示每个 GPU 的每个参数');
+                Object.keys(gpuDataMap).forEach(gpuId => {
+                    const gpuData = gpuDataMap[gpuId];
+                    const gpuName = `GPU${gpuId}`;
+                    
+                    selectedParams.forEach(paramKey => {
+                        const config = paramConfig[paramKey];
+                        const chartData = gpuData.map(d => {
+                            const val = d[config.key];
+                            return val !== undefined ? val : 0;
+                        });
+                        
+                        series.push({
+                            name: `${gpuName} - ${config.label}`,
+                            type: 'line',
+                            data: chartData,
+                            smooth: true
+                        });
+                        legendData.push(`${gpuName} - ${config.label}`);
+                    });
+                });
+            }
+        }
+        
+        console.log('Series 数量:', series.length);
+        console.log('Legend:', legendData);
+        console.log('X 轴数据:', xAxisData);
+        
+        historyChart.setOption({
+            tooltip: { trigger: 'axis' },
+            legend: { data: legendData },
+            xAxis: { 
+                type: 'category',
+                data: xAxisData,
+                axisLabel: {
+                    formatter: function(value) {
+                        return value;
+                    }
+                }
+            },
+            yAxis: { type: 'value', name: '值' },
+            series: series
+        }, { notMerge: true });
+        
+        console.log('图表渲染完成');
+    }
+
+    async function queryHistory() {
+        const startInput = document.getElementById('start-time').value;
+        const endInput = document.getElementById('end-time').value;
+        if (!startInput || !endInput) { alert('请选择时间'); return; }
+        
+        const startLocal = new Date(startInput);
+        const endLocal = new Date(endInput);
+        
+        if (startLocal >= endLocal) { alert('结束时间必须大于开始时间'); return; }
+        
+        // 构建 GPU ID 参数
+        let gpuIdParam = '';
+        if (historyDisplayMode === 'average') {
+            // 检查是否选中了特定 GPU
+            const checkboxes = document.querySelectorAll('#history-gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
+            const selectedGpuIds = Array.from(checkboxes).filter(cb => cb.checked).map(cb => parseInt(cb.value)).filter(id => !isNaN(id));
+            if (selectedGpuIds.length > 0) {
+                gpuIdParam = `&gpu_id=avg_${selectedGpuIds.join(',')}`;
+            } else {
+                gpuIdParam = '&gpu_id=avg';
+            }
+        } else {
+            // 分别展示模式，检查是否选中了特定 GPU
+            const checkboxes = document.querySelectorAll('#history-gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
+            const selectedGpuIds = Array.from(checkboxes).filter(cb => cb.checked).map(cb => parseInt(cb.value)).filter(id => !isNaN(id));
+            if (selectedGpuIds.length > 0) {
+                gpuIdParam = `&gpu_id=${selectedGpuIds.join(',')}`;
+            }
+        }
+        
+        // 构建参数筛选
+        let paramsParam = '';
+        if (selectedParams.length > 0) {
+            paramsParam = `&params=${selectedParams.join(',')}`;
+        }
+        
+        const startStr = toISOLocalString(startLocal);
+        const endStr = toISOLocalString(endLocal);
+        // 添加 max_data_points 参数，限制每个 GPU 返回 100 个数据点
+        const url = `/api/gpu/history?start=${startStr}&end=${endStr}${gpuIdParam}${paramsParam}&max_data_points=100`;
+        
+        try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error();
+            const data = await res.json();
+            if (!data.length) { alert('无数据'); return; }
+            
+            // 保存查询数据和参数
+            lastQueryData = data;
+            lastQueryParams = {
+                start: startStr,
+                end: endStr,
+                gpuIdParam: gpuIdParam,
+                paramsParam: paramsParam
+            };
+            
+            // 渲染图表
+            renderHistoryChart(data);
+            
+            // 获取统计数据用于表格显示
+            const statsUrl = `/api/gpu/history/stats?start=${startStr}&end=${endStr}${gpuIdParam ? gpuIdParam.replace('gpu_id=', '&gpu_id=') : ''}${paramsParam}`;
+            const statsRes = await fetch(statsUrl);
+            if (statsRes.ok) {
+                const statsData = await statsRes.json();
+                displayHistoryTable(statsData);
+            }
+        } catch(e) { 
+            console.error('查询失败', e);
+            alert('查询失败：' + e.message); 
+        }
+    }
+
+    function displayHistoryTable(statsData) {
+        // 显示后端返回的统计数据
+        const container = document.getElementById('history-table-container');
+        
+        if (!statsData || (!statsData.per_gpu && !statsData.overall_avg)) {
+            container.innerHTML = '<p style="text-align:center;color:#999;">无数据</p>';
+            return;
+        }
+        
+        let tableHtml = '<table class="data-table"><thead><tr>';
+        tableHtml += '<th>GPU ID</th>';
+        selectedParams.forEach(paramKey => {
+            const config = paramConfig[paramKey];
+            tableHtml += `<th>${config.label}</th>`;
+        });
+        tableHtml += '<th>数据点数</th>';
+        tableHtml += '</tr></thead><tbody>';
+        
+        // 显示每个 GPU 的平均值
+        if (statsData.per_gpu && statsData.per_gpu.length > 0) {
+            statsData.per_gpu.forEach(gpu => {
+                tableHtml += `<tr>`;
+                tableHtml += `<td>GPU ${gpu.gpu_id}</td>`;
+                selectedParams.forEach(paramKey => {
+                    const config = paramConfig[paramKey];
+                    const value = gpu[config.key] || 0;
+                    tableHtml += `<td>${value.toFixed(1)}${config.unit}</td>`;
+                });
+                tableHtml += `<td>${gpu.data_points}</td>`;
+                tableHtml += `</tr>`;
+            });
+        }
+        
+        // 显示总平均值
+        if (statsData.overall_avg) {
+            tableHtml += `<tr style="background-color:#f0f0f0;font-weight:bold;">`;
+            tableHtml += `<td>总平均</td>`;
+            selectedParams.forEach(paramKey => {
+                const config = paramConfig[paramKey];
+                const value = statsData.overall_avg[config.key] || 0;
+                tableHtml += `<td>${value.toFixed(1)}${config.unit}</td>`;
+            });
+            tableHtml += `<td>${statsData.overall_avg.data_points}</td>`;
+            tableHtml += `</tr>`;
+        }
+        
+        tableHtml += '</tbody></table>';
+        container.innerHTML = tableHtml;
+    }
+
+    async function queryCpuHistory() {
+        const startInput = document.getElementById('cpu-start-time').value;
+        const endInput = document.getElementById('cpu-end-time').value;
+        if (!startInput || !endInput) { alert('请选择时间'); return; }
+        
+        // 解析本地时间（北京时间）
+        const startLocal = new Date(startInput);
+        const endLocal = new Date(endInput);
+        
+        if (startLocal >= endLocal) { alert('结束时间必须大于开始时间'); return; }
+        
+        // 使用带时区偏移的格式传递给后端（北京时间 UTC+8）
+        const startStr = toISOLocalString(startLocal);
+        const endStr = toISOLocalString(endLocal);
+        const url = `/api/system/cpu_mem/history?start=${startStr}&end=${endStr}&max_data_points=100`;
+        
+        try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error();
+            const data = await res.json();
+            if (!data.length) { alert('无数据'); return; }
+            
+            if (!cpuHistoryChart) {
+                cpuHistoryChart = echarts.init(document.getElementById('cpu-history-chart'));
+            }
+            
+            cpuHistoryChart.setOption({
+                tooltip: { trigger: 'axis' },
+                legend: { data: ['CPU 使用率 (%)', '内存使用率 (%)'] },
+                xAxis: { type: 'category', data: data.map(d => formatTimeFromBackend(d.timestamp)) },
+                yAxis: { type: 'value', name: '百分比' },
+                series: [
+                    { name: 'CPU 使用率 (%)', type: 'line', data: data.map(d => d.cpu_util_percent), smooth: true },
+                    { name: '内存使用率 (%)', type: 'line', data: data.map(d => d.memory_util_percent), smooth: true }
+                ]
+            });
+        } catch(e) { 
+            console.error('查询失败', e);
+            alert('查询失败：' + e.message); 
+        }
+    }
+
+    function setDefaultTimeRange() {
+        // 使用当前本地时间（北京时间）
+        const now = new Date();
+        const oneHourAgo = new Date(now.getTime() - 3600000);
+        
+        // 使用本地时间格式化，而不是 UTC 时间
+        document.getElementById('start-time').value = formatDateTime(oneHourAgo);
+        document.getElementById('end-time').value = formatDateTime(now);
+        document.getElementById('cpu-start-time').value = formatDateTime(oneHourAgo);
+        document.getElementById('cpu-end-time').value = formatDateTime(now);
+    }
+
+    async function loadRecentRealtimeData() {
+        // 加载最近 5 分钟的历史数据用于实时趋势图
+        const now = new Date();
+        const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+        
+        try {
+            // 使用带时区偏移的格式
+            const startStr = toISOLocalString(fiveMinutesAgo);
+            const endStr = toISOLocalString(now);
+            const url = `/api/gpu/history?start=${startStr}&end=${endStr}&max_data_points=100`;
+            
+            console.log('请求 URL:', url);
+            const res = await fetch(url);
+            
+            if (!res.ok) {
+                console.error('HTTP 错误:', res.status);
+                throw new Error(`HTTP ${res.status}`);
+            }
+            
+            const data = await res.json();
+            console.log('获取到历史数据:', data.length, '条');
+            
+            if (data.length > 0) {
+                // 按 GPU ID 分组，确保每个 GPU 都有数据
+                const gpuDataMap = {};
+                data.forEach(stat => {
+                    if (stat.gpu_id === -1) return; // 跳过平均值数据
+                    if (!gpuDataMap[stat.gpu_id]) {
+                        gpuDataMap[stat.gpu_id] = {};
+                    }
+                    gpuDataMap[stat.gpu_id][stat.timestamp] = stat;
+                });
+                
+                // 找出所有 GPU 共有的时间点
+                const gpuIds = Object.keys(gpuDataMap).map(id => parseInt(id));
+                const commonTimestamps = {};
+                
+                if (gpuIds.length > 0) {
+                    // 以第一个 GPU 的时间戳为基准
+                    const firstGpuTimestamps = Object.keys(gpuDataMap[gpuIds[0]]);
+                    
+                    firstGpuTimestamps.forEach(ts => {
+                        // 检查其他 GPU 是否也有这个时间点的数据
+                        const hasAll = gpuIds.every(id => gpuDataMap[id][ts]);
+                        if (hasAll) {
+                            commonTimestamps[ts] = true;
+                        }
+                    });
+                }
+                
+                console.log('共有时间点:', Object.keys(commonTimestamps).length);
+                
+                // 将完整的数据填充到 realtimeData
+                Object.keys(commonTimestamps).forEach(ts => {
+                    const timestamp = new Date(ts);
+                    const entry = {
+                        timestamp: timestamp,
+                        gpus: {}
+                    };
+                    
+                    gpuIds.forEach(id => {
+                        entry.gpus[id] = gpuDataMap[id][ts];
+                    });
+                    
+                    realtimeData.push(entry);
+                });
+                
+                // 按时间排序
+                realtimeData.sort((a, b) => a.timestamp - b.timestamp);
+                
+                // 限制最多显示 60 个数据点
+                if (realtimeData.length > 60) {
+                    realtimeData = realtimeData.slice(-60);
+                }
+                
+                console.log('实时数据点:', realtimeData.length);
+                updateRealtimeChart();
+            }
+        } catch(e) {
+            console.error('加载最近 5 分钟数据失败:', e);
+        }
+    }
+
+    window.addEventListener('load', () => {
+        initRealtimeChart();
+        setDefaultTimeRange();
+        fetchGPUIds().then(() => {
+            // 获取 GPU ID 后，加载最近 5 分钟的历史数据
+            loadRecentRealtimeData();
+        }).catch(e => {
+            console.error('初始化失败:', e);
+        });
+        fetchGPUCurrent();
+        fetchCpuMem();
+        
+        // 设置定时刷新
+        setInterval(() => {
+            fetchGPUCurrent();
+            fetchCpuMem();
+        }, 5000);
+        
+        document.getElementById('query-history').addEventListener('click', queryHistory);
+        document.getElementById('query-cpu-history').addEventListener('click', queryCpuHistory);
+    });
+</script>
+</body>
+</html>
