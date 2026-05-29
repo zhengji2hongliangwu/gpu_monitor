@@ -113,7 +113,7 @@ async def get_history(
     max_data_points: Optional[int] = Query(
         100,
         description="每个 GPU 返回的最大数据点数（默认：100）。超过此值时自动降采样（时间窗口平均）",
-        ge=10,
+        ge=1,
         le=1000
     ),
     db: Session = Depends(get_db)
@@ -208,7 +208,9 @@ async def get_history(
             downsampled_stats.extend(gpu_stat_list)
         else:
             # 数据量超限，进行降采样（时间窗口平均）
-            window_size = len(gpu_stat_list) // max_data_points
+            # 计算窗口大小，确保至少返回 max_data_points 个数据点
+            window_size = max(1, len(gpu_stat_list) // max_data_points)
+            
             for i in range(0, len(gpu_stat_list), window_size):
                 window = gpu_stat_list[i:i + window_size]
                 if not window:
@@ -483,7 +485,7 @@ async def get_cpu_mem_history(
     max_data_points: Optional[int] = Query(
         100,
         description="返回的最大数据点数（默认：100）。超过此值时自动降采样（时间窗口平均）",
-        ge=10,
+        ge=1,
         le=1000
     ),
     db: Session = Depends(get_db)

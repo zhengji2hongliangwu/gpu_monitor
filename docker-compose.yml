@@ -9,9 +9,9 @@ services:
     container_name: gpu-monitor
     restart: unless-stopped
     ports:
-      - "8010:8010"
+      - "18004:8010"
     volumes:
-      # - ./app:/app/app ## 可以修改代码挂载
+      - ./app:/app/app ## 可以修改代码挂载
       # 挂载数据目录
       - ./data:/gpu_monitor/data
       # 挂载日志目录
