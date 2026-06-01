@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, DateTime, String
+from sqlalchemy import Column, Integer, Float, DateTime, String, Index
 from datetime import datetime
 from .database import Base
 
@@ -17,6 +17,11 @@ class GPUStat(Base):
     temperature = Column(Float)
     power_draw = Column(Float)
     power_limit = Column(Float)
+    
+    __table_args__ = (
+        Index('idx_gpu_timestamp', 'gpu_id', 'timestamp'),
+        Index('idx_timestamp_gpu', 'timestamp', 'gpu_id'),
+    )
 
 
 class CPUStat(Base):

@@ -118,6 +118,77 @@
         .control-panel { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
         .control-panel label { font-weight: 500; }
         .control-panel select { padding: 6px 12px; border-radius: 4px; border: 1px solid #ced4da; }
+        .download-btn { 
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+        }
+        .download-btn:hover { 
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
+        }
+        .download-btn:active { transform: translateY(0); }
+        /* 加载进度条样式 */
+        .loading-container {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .loading-container.active {
+            display: flex;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .loading-text {
+            font-size: 1rem;
+            color: #495057;
+            font-weight: 500;
+        }
+        .progress-bar {
+            flex: 1;
+            max-width: 300px;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+            animation: progress 2s ease-in-out infinite;
+            width: 30%;
+        }
+        @keyframes progress {
+            0% {
+                transform: translateX(-100%);
+            }
+            100% {
+                transform: translateX(400%);
+            }
+        }
         .gpu-selector { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
         .param-selector { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
         .gpu-checkbox, .param-checkbox { display: flex; align-items: center; gap: 5px; background: #f8f9fa; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
@@ -197,6 +268,10 @@
                 <option value="average">平均值</option>
                 <option value="separate">分别展示</option>
             </select>
+            <button onclick="downloadHistoryChartImage()" class="download-btn">📷 下载图表</button>
+            <button onclick="copyHistoryChartImage()" class="download-btn">📋 复制图表</button>
+            <button onclick="downloadHistoryTable()" class="download-btn">📊 下载表格</button>
+            <button onclick="copyHistoryTable()" class="download-btn">📋 复制表格</button>
         </div>
         <div id="history-gpu-selector-container" class="gpu-selector" style="display:none;"></div>
         <div id="history-param-selector-container" class="param-selector"></div>
@@ -204,6 +279,13 @@
             <div>开始时间：<input type="datetime-local" id="start-time"></div>
             <div>结束时间：<input type="datetime-local" id="end-time"></div>
             <button id="query-history">查询</button>
+        </div>
+        <div id="history-loading" class="loading-container">
+            <div class="spinner"></div>
+            <div class="loading-text">正在查询 GPU 历史数据...</div>
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
         </div>
         <div id="history-chart" style="height: 400px;"></div>
         <div id="history-table-container" class="table-container"></div>
@@ -215,8 +297,20 @@
             <div>开始时间：<input type="datetime-local" id="cpu-start-time"></div>
             <div>结束时间：<input type="datetime-local" id="cpu-end-time"></div>
             <button id="query-cpu-history">查询</button>
+            <button onclick="downloadCpuChartImage()" class="download-btn">📷 下载图表</button>
+            <button onclick="copyCpuChartImage()" class="download-btn">📋 复制图表</button>
+            <button onclick="downloadCpuTable()" class="download-btn">📊 下载表格</button>
+            <button onclick="copyCpuTable()" class="download-btn">📋 复制表格</button>
+        </div>
+        <div id="cpu-history-loading" class="loading-container">
+            <div class="spinner"></div>
+            <div class="loading-text">正在查询 CPU/内存历史数据...</div>
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
         </div>
         <div id="cpu-history-chart" style="height: 400px;"></div>
+        <div id="cpu-history-table-container" class="table-container"></div>
     </div>
 </div>
 
@@ -247,8 +341,15 @@
             return 'Invalid Date';
         }
         
-        return date.toLocaleTimeString('zh-CN', { 
+        // 同时显示日期和时间
+        return date.toLocaleString('zh-CN', { 
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
             hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
             timeZone: 'Asia/Shanghai'
         }); 
     }
@@ -750,6 +851,281 @@
         container.innerHTML = tableHtml;
     }
 
+    function displayCpuHistoryTable(data) {
+        // 显示 CPU/内存历史统计数据
+        const container = document.getElementById('cpu-history-table-container');
+        if (!container) return;
+        
+        if (!data || data.length === 0) {
+            container.innerHTML = '<p style="text-align:center;color:#999;">无数据</p>';
+            return;
+        }
+        
+        // 计算平均值、最大值、最小值
+        let cpuSum = 0, memSum = 0;
+        let cpuMin = Infinity, cpuMax = -Infinity;
+        let memMin = Infinity, memMax = -Infinity;
+        
+        data.forEach(d => {
+            const cpu = d.cpu_util_percent || 0;
+            const mem = d.memory_util_percent || 0;
+            
+            cpuSum += cpu;
+            memSum += mem;
+            
+            if (cpu < cpuMin) cpuMin = cpu;
+            if (cpu > cpuMax) cpuMax = cpu;
+            if (mem < memMin) memMin = mem;
+            if (mem > memMax) memMax = mem;
+        });
+        
+        const count = data.length;
+        const cpuAvg = cpuSum / count;
+        const memAvg = memSum / count;
+        
+        let tableHtml = '<table class="data-table"><thead><tr>';
+        tableHtml += '<th>统计项</th>';
+        tableHtml += '<th>CPU 使用率</th>';
+        tableHtml += '<th>内存使用率</th>';
+        tableHtml += '<th>数据点数</th>';
+        tableHtml += '</tr></thead><tbody>';
+        
+        // 平均值
+        tableHtml += `<tr style="background-color:#e3f2fd;font-weight:bold;">`;
+        tableHtml += `<td>平均值</td>`;
+        tableHtml += `<td>${cpuAvg.toFixed(1)}%</td>`;
+        tableHtml += `<td>${memAvg.toFixed(1)}%</td>`;
+        tableHtml += `<td>${count}</td>`;
+        tableHtml += `</tr>`;
+        
+        // 最小值
+        tableHtml += `<tr>`;
+        tableHtml += `<td>最小值</td>`;
+        tableHtml += `<td>${cpuMin.toFixed(1)}%</td>`;
+        tableHtml += `<td>${memMin.toFixed(1)}%</td>`;
+        tableHtml += `<td>-</td>`;
+        tableHtml += `</tr>`;
+        
+        // 最大值
+        tableHtml += `<tr>`;
+        tableHtml += `<td>最大值</td>`;
+        tableHtml += `<td>${cpuMax.toFixed(1)}%</td>`;
+        tableHtml += `<td>${memMax.toFixed(1)}%</td>`;
+        tableHtml += `<td>-</td>`;
+        tableHtml += `</tr>`;
+        
+        tableHtml += '</tbody></table>';
+        container.innerHTML = tableHtml;
+    }
+
+    // 下载 GPU 历史图表图片
+    function downloadHistoryChartImage() {
+        if (!historyChart) {
+            alert('请先查询数据');
+            return;
+        }
+        
+        const url = historyChart.getDataURL({
+            type: 'png',
+            pixelRatio: 2,
+            backgroundColor: '#fff'
+        });
+        
+        const link = document.createElement('a');
+        link.download = `GPU 历史数据_${new Date().getTime()}.png`;
+        link.href = url;
+        link.click();
+    }
+
+    // 复制 GPU 历史图表到剪贴板
+    async function copyHistoryChartImage() {
+        if (!historyChart) {
+            alert('请先查询数据');
+            return;
+        }
+        
+        try {
+            const blob = await getChartBlob(historyChart);
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    'image/png': blob
+                })
+            ]);
+            alert('图表已复制到剪贴板！可以直接粘贴到微信、QQ、文档中');
+        } catch (err) {
+            console.error('复制失败:', err);
+            alert('复制失败，请尝试下载图片');
+        }
+    }
+
+    // 下载 GPU 历史表格
+    function downloadHistoryTable() {
+        const container = document.getElementById('history-table-container');
+        const table = container.querySelector('table');
+        
+        if (!table) {
+            alert('暂无表格数据可下载');
+            return;
+        }
+        
+        downloadTableAsCSV(table, `GPU 历史统计_${new Date().getTime()}.csv`);
+    }
+
+    // 复制 GPU 历史表格到剪贴板
+    function copyHistoryTable() {
+        const container = document.getElementById('history-table-container');
+        const table = container.querySelector('table');
+        
+        if (!table) {
+            alert('暂无表格数据可复制');
+            return;
+        }
+        
+        copyTableToClipboard(table);
+        alert('表格已复制到剪贴板！可以直接粘贴到 Excel、微信、QQ 中');
+    }
+
+    // 下载 CPU 历史图表图片
+    function downloadCpuChartImage() {
+        if (!cpuHistoryChart) {
+            alert('请先查询数据');
+            return;
+        }
+        
+        const url = cpuHistoryChart.getDataURL({
+            type: 'png',
+            pixelRatio: 2,
+            backgroundColor: '#fff'
+        });
+        
+        const link = document.createElement('a');
+        link.download = `CPU 历史数据_${new Date().getTime()}.png`;
+        link.href = url;
+        link.click();
+    }
+
+    // 复制 CPU 历史图表到剪贴板
+    async function copyCpuChartImage() {
+        if (!cpuHistoryChart) {
+            alert('请先查询数据');
+            return;
+        }
+        
+        try {
+            const blob = await getChartBlob(cpuHistoryChart);
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    'image/png': blob
+                })
+            ]);
+            alert('图表已复制到剪贴板！可以直接粘贴到微信、QQ、文档中');
+        } catch (err) {
+            console.error('复制失败:', err);
+            alert('复制失败，请尝试下载图片');
+        }
+    }
+
+    // 下载 CPU 历史表格
+    function downloadCpuTable() {
+        const container = document.getElementById('cpu-history-table-container');
+        const table = container.querySelector('table');
+        
+        if (!table) {
+            alert('暂无表格数据可下载');
+            return;
+        }
+        
+        downloadTableAsCSV(table, `CPU 历史统计_${new Date().getTime()}.csv`);
+    }
+
+    // 复制 CPU 历史表格到剪贴板
+    function copyCpuTable() {
+        const container = document.getElementById('cpu-history-table-container');
+        const table = container.querySelector('table');
+        
+        if (!table) {
+            alert('暂无表格数据可复制');
+            return;
+        }
+        
+        copyTableToClipboard(table);
+        alert('表格已复制到剪贴板！可以直接粘贴到 Excel、微信、QQ 中');
+    }
+
+    // 通用函数：获取图表的 Blob 对象
+    async function getChartBlob(chart) {
+        return new Promise((resolve) => {
+            const canvas = chart.renderToCanvas();
+            canvas.toBlob((blob) => {
+                resolve(blob);
+            }, 'image/png');
+        });
+    }
+
+    // 通用函数：将表格复制到剪贴板
+    function copyTableToClipboard(table) {
+        let text = '';
+        
+        // 读取表头
+        const headers = table.querySelectorAll('thead th');
+        text += Array.from(headers).map(th => th.textContent.trim()).join('\t') + '\n';
+        
+        // 读取数据行
+        const rows = table.querySelectorAll('tbody tr');
+        rows.forEach(tr => {
+            const cells = tr.querySelectorAll('td');
+            text += Array.from(cells).map(td => td.textContent.trim()).join('\t') + '\n';
+        });
+        
+        // 使用现代 Clipboard API
+        navigator.clipboard.writeText(text).catch(err => {
+            console.error('复制失败:', err);
+            // 降级方案：使用 execCommand
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        });
+    }
+
+    // 通用函数：将表格下载为 CSV
+    function downloadTableAsCSV(table, filename) {
+        let csv = [];
+        
+        // 读取表头
+        const headers = table.querySelectorAll('thead th');
+        const headerRow = Array.from(headers).map(th => th.textContent.trim()).join(',');
+        csv.push(headerRow);
+        
+        // 读取数据行
+        const rows = table.querySelectorAll('tbody tr');
+        rows.forEach(tr => {
+            const cells = tr.querySelectorAll('td');
+            const rowData = Array.from(cells).map(td => {
+                const text = td.textContent.trim();
+                // 如果包含逗号或引号，需要转义
+                if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+                    return `"${text.replace(/"/g, '""')}"`;
+                }
+                return text;
+            });
+            csv.push(rowData.join(','));
+        });
+        
+        // 添加 BOM 以支持 Excel 正确显示中文
+        const csvContent = '\uFEFF' + csv.join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+        
+        URL.revokeObjectURL(link.href);
+    }
+
     function initRealtimeChart() {
         const dom = document.getElementById('realtime-chart');
         realtimeChart = echarts.init(dom);
@@ -766,15 +1142,30 @@
         console.log('当前模式:', historyDisplayMode);
         console.log('选中参数:', selectedParams);
         
-        if (!data || data.length === 0) {
-            console.log('没有数据可渲染');
-            return;
-        }
-        
-        // 初始化图表
+        // 初始化图表（如果还没有）
         if (!historyChart) {
             historyChart = echarts.init(document.getElementById('history-chart'));
             console.log('初始化图表实例');
+        }
+        
+        // 没有数据时，清空图表并显示提示
+        if (!data || data.length === 0) {
+            console.log('没有数据可渲染');
+            historyChart.setOption({
+                title: {
+                    text: '无数据',
+                    left: 'center',
+                    top: 'center',
+                    textStyle: {
+                        color: '#999',
+                        fontSize: 16
+                    }
+                },
+                xAxis: { type: 'category', data: [] },
+                yAxis: { type: 'value' },
+                series: []
+            });
+            return;
         }
         
         // 按 GPU ID 分组数据
@@ -798,6 +1189,26 @@
         const xAxisData = gpuDataMap[firstGpuId].map(d => formatTimeFromBackend(d.timestamp));
         
         console.log('X 轴数据条数:', xAxisData.length);
+        
+        // 如果 X 轴没有数据，显示提示
+        if (xAxisData.length === 0) {
+            console.log('X 轴没有数据');
+            historyChart.setOption({
+                title: {
+                    text: '无数据',
+                    left: 'center',
+                    top: 'center',
+                    textStyle: {
+                        color: '#999',
+                        fontSize: 16
+                    }
+                },
+                xAxis: { type: 'category', data: [] },
+                yAxis: { type: 'value' },
+                series: []
+            });
+            return;
+        }
         
         let series = [];
         let legendData = [];
@@ -928,6 +1339,20 @@
         
         if (startLocal >= endLocal) { alert('结束时间必须大于开始时间'); return; }
         
+        // 验证时间范围，最大不超过一年
+        const timeDiff = endLocal.getTime() - startLocal.getTime();
+        const maxTimeDiff = 365 * 24 * 60 * 60 * 1000; // 一年的毫秒数
+        if (timeDiff > maxTimeDiff) {
+            alert('查询时间范围过大，最大支持一年');
+            return;
+        }
+        
+        // 显示加载进度条
+        const loadingContainer = document.getElementById('history-loading');
+        if (loadingContainer) {
+            loadingContainer.classList.add('active');
+        }
+        
         // 构建 GPU ID 参数
         let gpuIdParam = '';
         if (historyDisplayMode === 'average') {
@@ -956,14 +1381,16 @@
         
         const startStr = toISOLocalString(startLocal);
         const endStr = toISOLocalString(endLocal);
-        // 添加 max_data_points 参数，限制每个 GPU 返回 100 个数据点
-        const url = `/api/gpu/history?start=${startStr}&end=${endStr}${gpuIdParam}${paramsParam}&max_data_points=100`;
+        // 添加 max_data_points 参数，限制每个 GPU 返回 1000 个数据点
+        const url = `/api/gpu/history?start=${startStr}&end=${endStr}${gpuIdParam}${paramsParam}&max_data_points=1000`;
         
         try {
             const res = await fetch(url);
-            if (!res.ok) throw new Error();
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${res.status}`);
+            }
             const data = await res.json();
-            if (!data.length) { alert('无数据'); return; }
             
             // 保存查询数据和参数
             lastQueryData = data;
@@ -974,19 +1401,38 @@
                 paramsParam: paramsParam
             };
             
-            // 渲染图表
+            // 渲染图表（即使没有数据也会显示提示）
             renderHistoryChart(data);
             
+            // 如果没有数据，显示提示并返回
+            if (!data || data.length === 0) {
+                // 清空表格
+                const tableContainer = document.getElementById('history-table-container');
+                if (tableContainer) {
+                    tableContainer.innerHTML = '<p style="text-align:center;color:#999;">无数据</p>';
+                }
+                return;
+            }
+            
             // 获取统计数据用于表格显示
-            const statsUrl = `/api/gpu/history/stats?start=${startStr}&end=${endStr}${gpuIdParam ? gpuIdParam.replace('gpu_id=', '&gpu_id=') : ''}${paramsParam}`;
+            const statsGpuParam = gpuIdParam ? gpuIdParam.replace('?gpu_id=', '&gpu_id=').replace('&gpu_id=', '&gpu_id=') : '';
+            const statsUrl = `/api/gpu/history/stats?start=${startStr}&end=${endStr}${statsGpuParam}${paramsParam}`;
             const statsRes = await fetch(statsUrl);
             if (statsRes.ok) {
                 const statsData = await statsRes.json();
                 displayHistoryTable(statsData);
+            } else if (statsRes.status === 400) {
+                const errorData = await statsRes.json().catch(() => ({}));
+                console.warn('统计数据查询失败（可能是时间范围过大）:', errorData.detail || statsRes.statusText);
             }
         } catch(e) { 
             console.error('查询失败', e);
             alert('查询失败：' + e.message); 
+        } finally {
+            // 隐藏加载进度条
+            if (loadingContainer) {
+                loadingContainer.classList.remove('active');
+            }
         }
     }
 
@@ -1008,9 +1454,25 @@
         tableHtml += '<th>数据点数</th>';
         tableHtml += '</tr></thead><tbody>';
         
-        // 显示每个 GPU 的平均值
+        // 显示每个 GPU 的平均值，去重处理
         if (statsData.per_gpu && statsData.per_gpu.length > 0) {
+            // 按 GPU ID 分组，确保每个 GPU 只显示一次
+            const gpuMap = new Map();
             statsData.per_gpu.forEach(gpu => {
+                const gpuId = gpu.gpu_id;
+                if (!gpuMap.has(gpuId)) {
+                    gpuMap.set(gpuId, gpu);
+                } else {
+                    // 如果已存在，累加数据点数（可能是降采样导致的重复）
+                    const existing = gpuMap.get(gpuId);
+                    existing.data_points += gpu.data_points;
+                }
+            });
+            
+            // 按 GPU ID 排序
+            const sortedGpus = Array.from(gpuMap.values()).sort((a, b) => a.gpu_id - b.gpu_id);
+            
+            sortedGpus.forEach(gpu => {
                 tableHtml += `<tr>`;
                 tableHtml += `<td>GPU ${gpu.gpu_id}</td>`;
                 selectedParams.forEach(paramKey => {
@@ -1051,20 +1513,60 @@
         
         if (startLocal >= endLocal) { alert('结束时间必须大于开始时间'); return; }
         
+        // 验证时间范围，最大不超过一年
+        const timeDiff = endLocal.getTime() - startLocal.getTime();
+        const maxTimeDiff = 365 * 24 * 60 * 60 * 1000; // 一年的毫秒数
+        if (timeDiff > maxTimeDiff) {
+            alert('查询时间范围过大，最大支持一年');
+            return;
+        }
+        
+        // 显示加载进度条
+        const loadingContainer = document.getElementById('cpu-history-loading');
+        if (loadingContainer) {
+            loadingContainer.classList.add('active');
+        }
+        
         // 使用带时区偏移的格式传递给后端（北京时间 UTC+8）
         const startStr = toISOLocalString(startLocal);
         const endStr = toISOLocalString(endLocal);
-        const url = `/api/system/cpu_mem/history?start=${startStr}&end=${endStr}&max_data_points=100`;
+        const url = `/api/system/cpu_mem/history?start=${startStr}&end=${endStr}&max_data_points=1000`;
         
         try {
             const res = await fetch(url);
-            if (!res.ok) throw new Error();
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${res.status}`);
+            }
             const data = await res.json();
-            if (!data.length) { alert('无数据'); return; }
+            if (!data || data.length === 0) {
+                // 清空图表和表格
+                if (cpuHistoryChart) {
+                    cpuHistoryChart.setOption({
+                        title: {
+                            text: '无数据',
+                            left: 'center',
+                            top: 'center',
+                            textStyle: { color: '#999', fontSize: 16 }
+                        },
+                        xAxis: { type: 'category', data: [] },
+                        yAxis: { type: 'value' },
+                        series: []
+                    });
+                }
+                const cpuTableContainer = document.getElementById('cpu-history-table-container');
+                if (cpuTableContainer) {
+                    cpuTableContainer.innerHTML = '<p style="text-align:center;color:#999;">无数据</p>';
+                }
+                return;
+            }
             
             if (!cpuHistoryChart) {
                 cpuHistoryChart = echarts.init(document.getElementById('cpu-history-chart'));
             }
+            
+            // 清除无数据提示
+            cpuHistoryChart.setOption({ title: null });
             
             cpuHistoryChart.setOption({
                 tooltip: { trigger: 'axis' },
@@ -1076,21 +1578,29 @@
                     { name: '内存使用率 (%)', type: 'line', data: data.map(d => d.memory_util_percent), smooth: true }
                 ]
             });
+            
+            // 计算并显示统计表格
+            displayCpuHistoryTable(data);
         } catch(e) { 
             console.error('查询失败', e);
-            alert('查询失败：' + e.message); 
+            alert('查询失败：' + e.message);
+        } finally {
+            // 隐藏加载进度条
+            if (loadingContainer) {
+                loadingContainer.classList.remove('active');
+            }
         }
     }
 
     function setDefaultTimeRange() {
         // 使用当前本地时间（北京时间）
         const now = new Date();
-        const oneHourAgo = new Date(now.getTime() - 3600000);
+        const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); // 最近一周
         
         // 使用本地时间格式化，而不是 UTC 时间
-        document.getElementById('start-time').value = formatDateTime(oneHourAgo);
+        document.getElementById('start-time').value = formatDateTime(oneWeekAgo);
         document.getElementById('end-time').value = formatDateTime(now);
-        document.getElementById('cpu-start-time').value = formatDateTime(oneHourAgo);
+        document.getElementById('cpu-start-time').value = formatDateTime(oneWeekAgo);
         document.getElementById('cpu-end-time').value = formatDateTime(now);
     }
 
@@ -1103,7 +1613,7 @@
             // 使用带时区偏移的格式
             const startStr = toISOLocalString(fiveMinutesAgo);
             const endStr = toISOLocalString(now);
-            const url = `/api/gpu/history?start=${startStr}&end=${endStr}&max_data_points=100`;
+            const url = `/api/gpu/history?start=${startStr}&end=${endStr}&max_data_points=1000`;
             
             console.log('请求 URL:', url);
             const res = await fetch(url);

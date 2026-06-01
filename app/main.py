@@ -111,10 +111,10 @@ async def get_history(
         description="需要返回的参数列表，逗号分隔。例如：utilization,memory,temperature,power。不指定则返回所有参数"
     ),
     max_data_points: Optional[int] = Query(
-        100,
-        description="每个 GPU 返回的最大数据点数（默认：100）。超过此值时自动降采样（时间窗口平均）",
+        1000,
+        description="每个 GPU 返回的最大数据点数（默认：1000）。超过此值时自动降采样（时间窗口平均）",
         ge=1,
-        le=1000
+        le=5000
     ),
     db: Session = Depends(get_db)
 ):
@@ -150,17 +150,22 @@ async def get_history(
     
     **注意事项：**
     - 结束时间必须大于开始时间
-    - 时间范围不宜过大（建议不超过 24 小时）
+    - 时间范围不宜过大（建议不超过 7 天）
     - 返回的数据已按时序排序
     """
-    # 验证时间范围
     if end <= start:
         raise HTTPException(
             status_code=400,
             detail="结束时间必须大于开始时间"
         )
     
-    # 解析 gpu_id 参数
+    time_range = end - start
+    if time_range.days > 366:
+        raise HTTPException(
+            status_code=400,
+            detail="查询时间范围过大，建议不超过 366 天"
+        )
+    
     target_gpu_ids = None
     calculate_avg = False
     
@@ -169,11 +174,10 @@ async def get_history(
             calculate_avg = True
         elif gpu_id.startswith('avg_'):
             calculate_avg = True
-            gpu_id_str = gpu_id[4:]  # 去掉 'avg_' 前缀
+            gpu_id_str = gpu_id[4:]
             if gpu_id_str:
                 target_gpu_ids = [int(x.strip()) for x in gpu_id_str.split(',')]
         else:
-            # 修复：过滤掉非数字字符
             gpu_id_parts = gpu_id.split(',')
             target_gpu_ids = []
             for part in gpu_id_parts:
@@ -183,63 +187,22 @@ async def get_history(
             if not target_gpu_ids:
                 target_gpu_ids = None
     
-    # 解析 params 参数
     param_keys = None
     if params:
         param_keys = [p.strip() for p in params.split(',')]
     
-    stats = crud.get_gpu_stats_between(db, start, end, None)  # 先获取所有数据
+    if target_gpu_ids is not None and len(target_gpu_ids) == 1:
+        stats = crud.get_gpu_stats_downsampled(db, start, end, target_gpu_ids[0], max_data_points)
+    else:
+        stats = crud.get_gpu_stats_downsampled(db, start, end, None, max_data_points)
     
-    # 如果需要筛选 GPU
-    if target_gpu_ids is not None:
+    if target_gpu_ids is not None and not calculate_avg:
         stats = [s for s in stats if s.gpu_id in target_gpu_ids]
     
-    # 按 GPU ID 分组
-    from collections import defaultdict
-    gpu_stats_map = defaultdict(list)
-    for stat in stats:
-        gpu_stats_map[stat.gpu_id].append(stat)
-    
-    # 对每个 GPU 的数据进行降采样
-    downsampled_stats = []
-    for gpu_id, gpu_stat_list in gpu_stats_map.items():
-        if len(gpu_stat_list) <= max_data_points:
-            # 数据量未超限，直接添加
-            downsampled_stats.extend(gpu_stat_list)
-        else:
-            # 数据量超限，进行降采样（时间窗口平均）
-            # 计算窗口大小，确保至少返回 max_data_points 个数据点
-            window_size = max(1, len(gpu_stat_list) // max_data_points)
-            
-            for i in range(0, len(gpu_stat_list), window_size):
-                window = gpu_stat_list[i:i + window_size]
-                if not window:
-                    continue
-                
-                # 计算窗口内的平均值
-                avg_stat = {
-                    'id': window[0].id,
-                    'gpu_id': window[0].gpu_id,
-                    'gpu_name': window[0].gpu_name,
-                    'utilization_gpu': sum(s.utilization_gpu for s in window) / len(window),
-                    'memory_used': sum(s.memory_used for s in window) / len(window),
-                    'memory_total': window[0].memory_total,
-                    'memory_util': sum(s.memory_util for s in window) / len(window),
-                    'temperature': sum(s.temperature for s in window) / len(window),
-                    'power_draw': sum(s.power_draw for s in window) / len(window),
-                    'power_limit': window[0].power_limit,
-                    'timestamp': window[len(window)//2].timestamp
-                }
-                downsampled_stats.append(type(gpu_stat_list[0])(**avg_stat))
-    
-    # 使用降采样后的数据
-    stats = downsampled_stats
-    
-    # 如果需要计算平均值
     if calculate_avg:
+        from collections import defaultdict
         grouped = defaultdict(list)
         for stat in stats:
-            # 数据库存储的是北京时间（无时区），直接使用
             time_key = stat.timestamp.replace(second=0, microsecond=0)
             grouped[time_key].append(stat)
         
@@ -249,7 +212,7 @@ async def get_history(
             if gpu_stats:
                 avg_stat = {
                     "id": 0,
-                    "gpu_id": -1,  # -1 表示平均值
+                    "gpu_id": -1,
                     "gpu_name": "Average",
                     "utilization_gpu": sum(s.utilization_gpu for s in gpu_stats) / len(gpu_stats),
                     "memory_used": sum(s.memory_used for s in gpu_stats) / len(gpu_stats),
@@ -257,11 +220,9 @@ async def get_history(
                     "memory_util": sum(s.memory_util for s in gpu_stats) / len(gpu_stats),
                     "temperature": sum(s.temperature for s in gpu_stats) / len(gpu_stats),
                     "power_draw": sum(s.power_draw for s in gpu_stats) / len(gpu_stats),
-                    "power_limit": gpu_stats[0].power_limit,  # 使用第一个 GPU 的功率限制
                     "timestamp": f"{time_key.strftime('%Y-%m-%dT%H:%M:%S')}+08:00"
                 }
                 
-                # 如果指定了 params，只返回指定的参数
                 if param_keys:
                     filtered_stat = {
                         "id": avg_stat["id"],
@@ -269,7 +230,6 @@ async def get_history(
                         "gpu_name": avg_stat["gpu_name"],
                         "timestamp": avg_stat["timestamp"]
                     }
-                    # 映射前端参数名到后端字段名
                     param_mapping = {
                         "utilization": "utilization_gpu",
                         "memory": "memory_util",
@@ -285,7 +245,6 @@ async def get_history(
         
         return result
     else:
-        # 返回原始数据
         result = [
             {
                 "id": stat.id,
@@ -297,13 +256,11 @@ async def get_history(
                 "memory_util": stat.memory_util,
                 "temperature": stat.temperature,
                 "power_draw": stat.power_draw,
-                "power_limit": stat.power_limit,
                 "timestamp": f"{stat.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}+08:00"
             }
             for stat in stats
         ]
         
-        # 如果指定了 params，只返回指定的参数
         if param_keys:
             param_mapping = {
                 "utilization": "utilization_gpu",
@@ -376,14 +333,20 @@ async def get_history_stats(
     }
     ```
     """
-    # 验证时间范围
     if end <= start:
         raise HTTPException(
             status_code=400,
             detail="结束时间必须大于开始时间"
         )
     
-    # 解析 gpu_id 参数
+    # 时间范围限制，允许查询任意时间段
+    time_range = end - start
+    if time_range.days > 366:
+        raise HTTPException(
+            status_code=400,
+            detail="查询时间范围过大，建议不超过 366 天"
+        )
+    
     target_gpu_ids = None
     if gpu_id:
         gpu_id_parts = gpu_id.split(',')
@@ -395,56 +358,47 @@ async def get_history_stats(
         if not target_gpu_ids:
             target_gpu_ids = None
     
-    # 解析 params 参数
     param_keys = None
     if params:
         param_keys = [p.strip() for p in params.split(',')]
     
-    stats = crud.get_gpu_stats_between(db, start, end, None)
+    if target_gpu_ids is not None and len(target_gpu_ids) == 1:
+        summary_stats = crud.get_gpu_stats_summary(db, start, end, target_gpu_ids[0])
+    else:
+        summary_stats = crud.get_gpu_stats_summary(db, start, end, None)
     
-    # 如果需要筛选 GPU
     if target_gpu_ids is not None:
-        stats = [s for s in stats if s.gpu_id in target_gpu_ids]
+        summary_stats = [s for s in summary_stats if s.gpu_id in target_gpu_ids]
     
-    if not stats:
+    if not summary_stats:
         return {"per_gpu": [], "overall_avg": None}
     
-    # 按 GPU ID 分组
-    from collections import defaultdict
-    grouped = defaultdict(list)
-    for stat in stats:
-        grouped[stat.gpu_id].append(stat)
-    
-    # 计算每个 GPU 的平均值
     per_gpu = []
-    all_values = []
     
-    for gpu_id in sorted(grouped.keys()):
-        gpu_stats = grouped[gpu_id]
-        all_values.extend(gpu_stats)
-        
+    for row in summary_stats:
         avg_data = {
-            "gpu_id": gpu_id,
-            "gpu_name": gpu_stats[0].gpu_name,
-            "utilization_gpu": sum(s.utilization_gpu for s in gpu_stats) / len(gpu_stats),
-            "memory_used": sum(s.memory_used for s in gpu_stats) / len(gpu_stats),
-            "memory_total": gpu_stats[0].memory_total,
-            "memory_util": sum(s.memory_util for s in gpu_stats) / len(gpu_stats),
-            "temperature": sum(s.temperature for s in gpu_stats) / len(gpu_stats),
-            "power_draw": sum(s.power_draw for s in gpu_stats) / len(gpu_stats),
-            "data_points": len(gpu_stats)
+            "gpu_id": row.gpu_id,
+            "gpu_name": row.gpu_name,
+            "utilization_gpu": row.utilization_gpu,
+            "memory_used": row.memory_used,
+            "memory_total": row.memory_total,
+            "memory_util": row.memory_util,
+            "temperature": row.temperature,
+            "power_draw": row.power_draw,
+            "data_points": row.data_points
         }
         per_gpu.append(avg_data)
     
-    # 计算所有 GPU 的总平均值
+    overall_summary = crud.get_gpu_stats_overall_summary(db, start, end, target_gpu_ids[0] if target_gpu_ids and len(target_gpu_ids) == 1 else None)
+    
     overall_avg = {
-        "utilization_gpu": sum(s.utilization_gpu for s in all_values) / len(all_values),
-        "memory_used": sum(s.memory_used for s in all_values) / len(all_values),
-        "memory_total": all_values[0].memory_total,
-        "memory_util": sum(s.memory_util for s in all_values) / len(all_values),
-        "temperature": sum(s.temperature for s in all_values) / len(all_values),
-        "power_draw": sum(s.power_draw for s in all_values) / len(all_values),
-        "data_points": len(all_values)
+        "utilization_gpu": overall_summary.utilization_gpu,
+        "memory_used": overall_summary.memory_used,
+        "memory_total": overall_summary.memory_total,
+        "memory_util": overall_summary.memory_util,
+        "temperature": overall_summary.temperature,
+        "power_draw": overall_summary.power_draw,
+        "data_points": overall_summary.data_points
     }
     
     return {"per_gpu": per_gpu, "overall_avg": overall_avg}
@@ -483,10 +437,10 @@ async def get_cpu_mem_history(
         examples=["2026-05-28T15:30:00+08:00", "2026-05-28T07:30:00Z"]
     ),
     max_data_points: Optional[int] = Query(
-        100,
-        description="返回的最大数据点数（默认：100）。超过此值时自动降采样（时间窗口平均）",
+        1000,
+        description="返回的最大数据点数（默认：1000）。超过此值时自动降采样（时间窗口平均）",
         ge=1,
-        le=1000
+        le=5000
     ),
     db: Session = Depends(get_db)
 ):
