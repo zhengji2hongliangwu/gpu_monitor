@@ -945,16 +945,52 @@
         }
         
         try {
-            const blob = await getChartBlob(historyChart);
-            await navigator.clipboard.write([
-                new ClipboardItem({
-                    'image/png': blob
-                })
-            ]);
-            alert('图表已复制到剪贴板！可以直接粘贴到微信、QQ、文档中');
+            console.log('开始复制图表...');
+            // 检查浏览器支持
+            if (!navigator.clipboard || !navigator.clipboard.write) {
+                throw new Error('浏览器不支持剪贴板 API');
+            }
+            
+            const dataURL = historyChart.getDataURL({
+                type: 'png',
+                pixelRatio: 2,
+                backgroundColor: '#fff'
+            });
+            
+            // 尝试使用 ClipboardItem API
+            try {
+                const response = await fetch(dataURL);
+                const blob = await response.blob();
+                
+                await navigator.clipboard.write([
+                    new ClipboardItem({
+                        'image/png': blob
+                    })
+                ]);
+                console.log('图表复制成功（ClipboardItem）');
+                alert('✅ 图表已复制到剪贴板！可以直接粘贴到微信、QQ、文档中');
+                return;
+            } catch (clipboardErr) {
+                console.warn('ClipboardItem 失败，尝试降级方案:', clipboardErr);
+                
+                // 降级方案：打开新窗口显示图片
+                const newWindow = window.open();
+                if (newWindow) {
+                    newWindow.document.write(`
+                        <html><head><title>GPU 历史图表</title></head>
+                        <body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f0f0f0;">
+                            <img src="${dataURL}" alt="GPU 历史图表" style="max-width:100%;box-shadow:0 4px 12px rgba(0,0,0,0.2);">
+                        </body></html>
+                    `);
+                    newWindow.document.close();
+                    alert('📷 图表已在新窗口打开！\n\n您可以：\n1. 右键点击图片选择"复制图片"\n2. 或直接保存到新窗口');
+                } else {
+                    throw new Error('无法打开新窗口');
+                }
+            }
         } catch (err) {
             console.error('复制失败:', err);
-            alert('复制失败，请尝试下载图片');
+            alert('❌ 复制失败：' + err.message + '\n\n请尝试：\n1. 使用下载功能\n2. 或检查浏览器是否允许剪贴板权限');
         }
     }
 
@@ -982,7 +1018,7 @@
         }
         
         copyTableToClipboard(table);
-        alert('表格已复制到剪贴板！可以直接粘贴到 Excel、微信、QQ 中');
+        alert('✅ 表格已复制到剪贴板！可以直接粘贴到 Excel、微信、QQ 中');
     }
 
     // 下载 CPU 历史图表图片
@@ -1012,16 +1048,52 @@
         }
         
         try {
-            const blob = await getChartBlob(cpuHistoryChart);
-            await navigator.clipboard.write([
-                new ClipboardItem({
-                    'image/png': blob
-                })
-            ]);
-            alert('图表已复制到剪贴板！可以直接粘贴到微信、QQ、文档中');
+            console.log('开始复制图表...');
+            // 检查浏览器支持
+            if (!navigator.clipboard || !navigator.clipboard.write) {
+                throw new Error('浏览器不支持剪贴板 API');
+            }
+            
+            const dataURL = cpuHistoryChart.getDataURL({
+                type: 'png',
+                pixelRatio: 2,
+                backgroundColor: '#fff'
+            });
+            
+            // 尝试使用 ClipboardItem API
+            try {
+                const response = await fetch(dataURL);
+                const blob = await response.blob();
+                
+                await navigator.clipboard.write([
+                    new ClipboardItem({
+                        'image/png': blob
+                    })
+                ]);
+                console.log('图表复制成功（ClipboardItem）');
+                alert('✅ 图表已复制到剪贴板！可以直接粘贴到微信、QQ、文档中');
+                return;
+            } catch (clipboardErr) {
+                console.warn('ClipboardItem 失败，尝试降级方案:', clipboardErr);
+                
+                // 降级方案：打开新窗口显示图片
+                const newWindow = window.open();
+                if (newWindow) {
+                    newWindow.document.write(`
+                        <html><head><title>CPU 历史图表</title></head>
+                        <body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f0f0f0;">
+                            <img src="${dataURL}" alt="CPU 历史图表" style="max-width:100%;box-shadow:0 4px 12px rgba(0,0,0,0.2);">
+                        </body></html>
+                    `);
+                    newWindow.document.close();
+                    alert('📷 图表已在新窗口打开！\n\n您可以：\n1. 右键点击图片选择"复制图片"\n2. 或直接保存到新窗口');
+                } else {
+                    throw new Error('无法打开新窗口');
+                }
+            }
         } catch (err) {
             console.error('复制失败:', err);
-            alert('复制失败，请尝试下载图片');
+            alert('❌ 复制失败：' + err.message + '\n\n请尝试：\n1. 使用下载功能\n2. 或检查浏览器是否允许剪贴板权限');
         }
     }
 
@@ -1049,16 +1121,27 @@
         }
         
         copyTableToClipboard(table);
-        alert('表格已复制到剪贴板！可以直接粘贴到 Excel、微信、QQ 中');
+        alert('✅ 表格已复制到剪贴板！可以直接粘贴到 Excel、微信、QQ 中');
     }
 
     // 通用函数：获取图表的 Blob 对象
     async function getChartBlob(chart) {
         return new Promise((resolve) => {
-            const canvas = chart.renderToCanvas();
-            canvas.toBlob((blob) => {
-                resolve(blob);
-            }, 'image/png');
+            // 使用 ECharts 内置方法获取 base64 图片
+            const dataURL = chart.getDataURL({
+                type: 'png',
+                pixelRatio: 2,
+                backgroundColor: '#fff'
+            });
+            
+            // 将 base64 转换为 Blob
+            fetch(dataURL)
+                .then(response => response.blob())
+                .then(blob => resolve(blob))
+                .catch(err => {
+                    console.error('转换失败:', err);
+                    resolve(null);
+                });
         });
     }
 
@@ -1078,16 +1161,34 @@
         });
         
         // 使用现代 Clipboard API
-        navigator.clipboard.writeText(text).catch(err => {
-            console.error('复制失败:', err);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).catch(err => {
+                console.error('复制失败:', err);
+                fallbackCopyTextToClipboard(text);
+            });
+        } else {
             // 降级方案：使用 execCommand
-            const textarea = document.createElement('textarea');
-            textarea.value = text;
-            document.body.appendChild(textarea);
-            textarea.select();
+            fallbackCopyTextToClipboard(text);
+        }
+    }
+    
+    // 降级复制函数
+    function fallbackCopyTextToClipboard(text) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
             document.execCommand('copy');
+            console.log('复制成功（降级方案）');
+        } catch (err) {
+            console.error('复制失败:', err);
+        } finally {
             document.body.removeChild(textarea);
-        });
+        }
     }
 
     // 通用函数：将表格下载为 CSV
