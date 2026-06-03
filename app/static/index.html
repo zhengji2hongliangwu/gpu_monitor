@@ -448,16 +448,9 @@
 
     function onGpuSelectionChange() {
         const checkboxes = document.querySelectorAll('#gpu-selector-container input[type="checkbox"]');
-        const avgCheckbox = checkboxes[0];
-        const gpuCheckboxes = Array.from(checkboxes).slice(1);
         
-        if (avgCheckbox.checked) {
-            // 选中平均值，禁用所有 GPU 复选框
-            gpuCheckboxes.forEach(cb => cb.disabled = true);
-        } else {
-            // 未选平均值，启用所有 GPU 复选框
-            gpuCheckboxes.forEach(cb => cb.disabled = false);
-        }
+        // 不再禁用 GPU 复选框，允许同时选择平均值和多个 GPU
+        // 平均值会显示选中 GPU 的平均值
         
         updateRealtimeChart();
     }
@@ -715,11 +708,25 @@
         const showAverage = avgCheckbox && avgCheckbox.checked;
         
         if (showAverage) {
-            // 显示所有 GPU 的平均值
+            // 显示选中 GPU 的平均值
             selectedParams.forEach(paramKey => {
                 const config = paramConfig[paramKey];
+                
+                // 获取选中的 GPU ID
+                const gpuCheckboxes = document.querySelectorAll('#gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
+                const selectedGpuIds = Array.from(gpuCheckboxes)
+                    .filter(cb => cb.checked)
+                    .map(cb => parseInt(cb.value));
+                
+                // 如果没有选中任何 GPU，使用所有 GPU
+                if (selectedGpuIds.length === 0) {
+                    selectedGpuIds.push(...gpuIds);
+                }
+                
                 const data = realtimeData.map(d => {
-                    const gpus = Object.values(d.gpus).filter(g => g && g.gpu_id !== -1);
+                    const gpus = selectedGpuIds
+                        .map(id => d.gpus[id])
+                        .filter(g => g && g.gpu_id !== -1);
                     if (gpus.length === 0) return 0;
                     const sum = gpus.reduce((acc, g) => acc + (g[config.key] || 0), 0);
                     return sum / gpus.length;
