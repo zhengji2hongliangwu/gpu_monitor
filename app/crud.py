@@ -43,6 +43,179 @@ def cleanup_old_data(db: Session, retention_days: int):
     }
 
 
+def delete_gpu_data_in_range(db: Session, start: datetime, end: datetime, gpu_id: int = None):
+    """
+    删除指定时间范围内的 GPU 数据
+    
+    Args:
+        db: 数据库会话
+        start: 开始时间
+        end: 结束时间
+        gpu_id: 可选，指定 GPU ID，如果不指定则删除所有 GPU 的数据
+    
+    Returns:
+        删除的数据条数
+    """
+    query = db.query(models.GPUStat).filter(
+        models.GPUStat.timestamp >= start,
+        models.GPUStat.timestamp <= end
+    )
+    
+    if gpu_id is not None:
+        query = query.filter(models.GPUStat.gpu_id == gpu_id)
+    
+    deleted_count = query.delete(synchronize_session=False)
+    db.commit()
+    
+    return deleted_count
+
+
+def delete_cpu_data_in_range(db: Session, start: datetime, end: datetime):
+    """
+    删除指定时间范围内的 CPU 数据
+    
+    Args:
+        db: 数据库会话
+        start: 开始时间
+        end: 结束时间
+    
+    Returns:
+        删除的数据条数
+    """
+    deleted_count = db.query(models.CPUStat).filter(
+        models.CPUStat.timestamp >= start,
+        models.CPUStat.timestamp <= end
+    ).delete(synchronize_session=False)
+    
+    db.commit()
+    
+    return deleted_count
+
+
+def get_gpu_data_count_in_range(db: Session, start: datetime, end: datetime, gpu_id: int = None):
+    """
+    统计指定时间范围内的 GPU 数据条数
+    
+    Args:
+        db: 数据库会话
+        start: 开始时间
+        end: 结束时间
+        gpu_id: 可选，指定 GPU ID
+    
+    Returns:
+        数据条数
+    """
+    query = db.query(func.count(models.GPUStat.id)).filter(
+        models.GPUStat.timestamp >= start,
+        models.GPUStat.timestamp <= end
+    )
+    
+    if gpu_id is not None:
+        query = query.filter(models.GPUStat.gpu_id == gpu_id)
+    
+    return query.scalar()
+
+
+def get_cpu_data_count_in_range(db: Session, start: datetime, end: datetime):
+    """
+    统计指定时间范围内的 CPU 数据条数
+    
+    Args:
+        db: 数据库会话
+        start: 开始时间
+        end: 结束时间
+    
+    Returns:
+        数据条数
+    """
+    return db.query(func.count(models.CPUStat.id)).filter(
+        models.CPUStat.timestamp >= start,
+        models.CPUStat.timestamp <= end
+    ).scalar()
+
+
+def get_gpu_data_actual_range(db: Session, start: datetime, end: datetime, gpu_id: int = None):
+    """
+    获取指定时间范围内 GPU 数据的实际时间范围
+    
+    Args:
+        db: 数据库会话
+        start: 查询开始时间
+        end: 查询结束时间
+        gpu_id: 可选，指定 GPU ID
+    
+    Returns:
+        包含实际时间范围和数据条数的字典
+    """
+    query = db.query(
+        func.min(models.GPUStat.timestamp).label('actual_start'),
+        func.max(models.GPUStat.timestamp).label('actual_end'),
+        func.count(models.GPUStat.id).label('count')
+    ).filter(
+        models.GPUStat.timestamp >= start,
+        models.GPUStat.timestamp <= end
+    )
+    
+    if gpu_id is not None:
+        query = query.filter(models.GPUStat.gpu_id == gpu_id)
+    
+    result = query.first()
+    
+    if result and result.count > 0:
+        return {
+            'actual_start': result.actual_start,
+            'actual_end': result.actual_end,
+            'count': result.count,
+            'has_data': True
+        }
+    else:
+        return {
+            'actual_start': None,
+            'actual_end': None,
+            'count': 0,
+            'has_data': False
+        }
+
+
+def get_cpu_data_actual_range(db: Session, start: datetime, end: datetime):
+    """
+    获取指定时间范围内 CPU 数据的实际时间范围
+    
+    Args:
+        db: 数据库会话
+        start: 查询开始时间
+        end: 查询结束时间
+    
+    Returns:
+        包含实际时间范围和数据条数的字典
+    """
+    result = db.query(
+        func.min(models.CPUStat.timestamp).label('actual_start'),
+        func.max(models.CPUStat.timestamp).label('actual_end'),
+        func.count(models.CPUStat.id).label('count')
+    ).filter(
+        models.CPUStat.timestamp >= start,
+        models.CPUStat.timestamp <= end
+    ).first()
+    
+    if result and result.count > 0:
+        return {
+            'actual_start': result.actual_start,
+            'actual_end': result.actual_end,
+            'count': result.count,
+            'has_data': True
+        }
+    else:
+        return {
+            'actual_start': None,
+            'actual_end': None,
+            'count': 0,
+            'has_data': False
+        }
+
+
+
+
 def get_database_size(db: Session) -> int:
     """获取数据库文件大小（字节）"""
     from .config import DATABASE_PATH

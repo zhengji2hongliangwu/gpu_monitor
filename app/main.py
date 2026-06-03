@@ -6,6 +6,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 import asyncio
 import os
+import pytz
 
 from . import database, schemas, crud, models
 from typing import List, Optional
@@ -578,3 +579,195 @@ async def cleanup_database(db: Session = Depends(get_db)):
         "cutoff_date": result["cutoff_date"].isoformat(),
         "retention_days": retention_days
     }
+
+
+@app.delete("/api/admin/data/gpu")
+async def delete_gpu_data(
+    start: datetime = Query(
+        ...,
+        description="删除开始时间（ISO 8601 格式，带时区）",
+        examples=["2026-05-28T14:30:00+08:00", "2026-05-28T06:30:00Z"]
+    ),
+    end: datetime = Query(
+        ...,
+        description="删除结束时间（ISO 8601 格式，带时区）"
+    ),
+    gpu_id: Optional[int] = Query(
+        None,
+        description="可选，指定要删除的 GPU ID。不指定则删除该时间段内所有 GPU 的数据"
+    ),
+    db: Session = Depends(get_db)
+):
+    """
+    删除指定时间范围内的 GPU 数据
+    
+    **功能：**
+    - 删除指定时间段内的 GPU 监控数据
+    - 可选指定特定 GPU ID
+    - 自动调整到实际有数据的时间范围
+    - 返回删除的数据条数和实际删除的时间范围
+    
+    **参数：**
+    - `start`: 开始时间（必填）
+    - `end`: 结束时间（必填）
+    - `gpu_id`: GPU ID（可选），不指定则删除所有 GPU 的数据
+    
+    **返回：**
+    - 删除的数据条数
+    - 实际删除的时间范围
+    - 请求的时间范围
+    
+    **示例：**
+    ```
+    DELETE /api/admin/data/gpu?start=2026-05-01T00:00:00+08:00&end=2026-05-31T23:59:59+08:00
+    DELETE /api/admin/data/gpu?start=2026-05-01T00:00:00+08:00&end=2026-05-31T23:59:59+08:00&gpu_id=0
+    ```
+    """
+    if end <= start:
+        raise HTTPException(
+            status_code=400,
+            detail="结束时间必须大于开始时间"
+        )
+    
+    # 获取整个数据库中实际有数据的时间范围（在请求时间范围内）
+    actual_range = crud.get_gpu_data_actual_range(db, start, end, gpu_id)
+    
+    if not actual_range['has_data']:
+        target_desc = f"GPU {gpu_id}" if gpu_id is not None else "所有 GPU"
+        
+        # 检查是否是因为结束时间设置不当导致
+        # 查询整个数据库中最早和最晚的数据时间
+        overall_range = crud.get_gpu_data_actual_range(db, start.replace(year=2000, month=1, day=1, hour=0, minute=0, second=0), start.replace(year=2100, month=12, day=31, hour=23, minute=59, second=59), gpu_id)
+        
+        suggestion = ""
+        if overall_range['has_data']:
+            # 确保时区一致后再比较 - 都转换为 UTC 时间进行比较
+            start_utc = start.astimezone(pytz.UTC)
+            end_utc = end.astimezone(pytz.UTC)
+            actual_start_utc = overall_range['actual_start'].astimezone(pytz.UTC)
+            actual_end_utc = overall_range['actual_end'].astimezone(pytz.UTC)
+            
+            if end_utc < actual_start_utc:
+                suggestion = f"提示：数据库中最早的 {target_desc} 数据时间是 {overall_range['actual_start'].isoformat()}，您的结束时间早于此时间"
+            elif start_utc > actual_end_utc:
+                suggestion = f"提示：数据库中最晚的 {target_desc} 数据时间是 {overall_range['actual_end'].isoformat()}，您的开始时间晚于此时间"
+            else:
+                suggestion = f"提示：数据库中 {target_desc} 的数据时间范围是 {overall_range['actual_start'].isoformat()} 到 {overall_range['actual_end'].isoformat()}"
+        
+        return {
+            "success": True,
+            "message": f"指定时间范围内没有找到 {target_desc} 的数据",
+            "deleted_count": 0,
+            "requested_start": start.isoformat(),
+            "requested_end": end.isoformat(),
+            "actual_start": None,
+            "actual_end": None,
+            "gpu_id": gpu_id,
+            "suggestion": suggestion
+        }
+    
+    # 执行删除（使用实际有数据的时间范围）
+    deleted = crud.delete_gpu_data_in_range(db, actual_range['actual_start'], actual_range['actual_end'], gpu_id)
+    
+    target_desc = f"GPU {gpu_id}" if gpu_id is not None else "所有 GPU"
+    
+    return {
+        "success": True,
+        "message": f"成功删除 {target_desc} 的数据",
+        "deleted_count": deleted,
+        "requested_start": start.isoformat(),
+        "requested_end": end.isoformat(),
+        "actual_start": actual_range['actual_start'].isoformat(),
+        "actual_end": actual_range['actual_end'].isoformat(),
+        "gpu_id": gpu_id
+    }
+
+
+@app.delete("/api/admin/data/cpu")
+async def delete_cpu_data(
+    start: datetime = Query(
+        ...,
+        description="删除开始时间（ISO 8601 格式，带时区）",
+        examples=["2026-05-28T14:30:00+08:00", "2026-05-28T06:30:00Z"]
+    ),
+    end: datetime = Query(
+        ...,
+        description="删除结束时间（ISO 8601 格式，带时区）"
+    ),
+    db: Session = Depends(get_db)
+):
+    """
+    删除指定时间范围内的 CPU 数据
+    
+    **功能：**
+    - 删除指定时间段内的 CPU 和内存监控数据
+    - 自动调整到实际有数据的时间范围
+    - 返回删除的数据条数和实际删除的时间范围
+    
+    **参数：**
+    - `start`: 开始时间（必填）
+    - `end`: 结束时间（必填）
+    
+    **返回：**
+    - 删除的数据条数
+    - 实际删除的时间范围
+    - 请求的时间范围
+    
+    **示例：**
+    ```
+    DELETE /api/admin/data/cpu?start=2026-05-01T00:00:00+08:00&end=2026-05-31T23:59:59+08:00
+    ```
+    """
+    if end <= start:
+        raise HTTPException(
+            status_code=400,
+            detail="结束时间必须大于开始时间"
+        )
+    
+    # 获取实际有数据的时间范围
+    actual_range = crud.get_cpu_data_actual_range(db, start, end)
+    
+    if not actual_range['has_data']:
+        # 检查是否是因为结束时间设置不当导致
+        # 查询整个数据库中最早和最晚的数据时间
+        overall_range = crud.get_cpu_data_actual_range(db, start.replace(year=2000, month=1, day=1, hour=0, minute=0, second=0), start.replace(year=2100, month=12, day=31, hour=23, minute=59, second=59))
+        
+        suggestion = ""
+        if overall_range['has_data']:
+            # 确保时区一致后再比较 - 都转换为 UTC 时间进行比较
+            start_utc = start.astimezone(pytz.UTC)
+            end_utc = end.astimezone(pytz.UTC)
+            actual_start_utc = overall_range['actual_start'].astimezone(pytz.UTC)
+            actual_end_utc = overall_range['actual_end'].astimezone(pytz.UTC)
+            
+            if end_utc < actual_start_utc:
+                suggestion = f"提示：数据库中最早的 CPU 数据时间是 {overall_range['actual_start'].isoformat()}，您的结束时间早于此时间"
+            elif start_utc > actual_end_utc:
+                suggestion = f"提示：数据库中最晚的 CPU 数据时间是 {overall_range['actual_end'].isoformat()}，您的开始时间晚于此时间"
+            else:
+                suggestion = f"提示：数据库中 CPU 的数据时间范围是 {overall_range['actual_start'].isoformat()} 到 {overall_range['actual_end'].isoformat()}"
+        
+        return {
+            "success": True,
+            "message": f"指定时间范围内没有找到 CPU 数据",
+            "deleted_count": 0,
+            "requested_start": start.isoformat(),
+            "requested_end": end.isoformat(),
+            "actual_start": None,
+            "actual_end": None,
+            "suggestion": suggestion
+        }
+    
+    # 执行删除（使用实际有数据的时间范围）
+    deleted = crud.delete_cpu_data_in_range(db, actual_range['actual_start'], actual_range['actual_end'])
+    
+    return {
+        "success": True,
+        "message": f"成功删除 CPU 数据",
+        "deleted_count": deleted,
+        "requested_start": start.isoformat(),
+        "requested_end": end.isoformat(),
+        "actual_start": actual_range['actual_start'].isoformat(),
+        "actual_end": actual_range['actual_end'].isoformat()
+    }
+
