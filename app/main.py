@@ -363,8 +363,8 @@ async def get_history_stats(
     if params:
         param_keys = [p.strip() for p in params.split(',')]
     
-    if target_gpu_ids is not None and len(target_gpu_ids) == 1:
-        summary_stats = crud.get_gpu_stats_summary(db, start, end, target_gpu_ids[0])
+    if target_gpu_ids is not None and len(target_gpu_ids) >= 1:
+        summary_stats = crud.get_gpu_stats_summary(db, start, end, target_gpu_ids)
     else:
         summary_stats = crud.get_gpu_stats_summary(db, start, end, None)
     
@@ -390,19 +390,19 @@ async def get_history_stats(
         }
         per_gpu.append(avg_data)
     
-    overall_summary = crud.get_gpu_stats_overall_summary(db, start, end, target_gpu_ids[0] if target_gpu_ids and len(target_gpu_ids) == 1 else None)
+    overall_avg = crud.get_gpu_stats_overall_summary(db, start, end, target_gpu_ids)
     
-    overall_avg = {
-        "utilization_gpu": overall_summary.utilization_gpu,
-        "memory_used": overall_summary.memory_used,
-        "memory_total": overall_summary.memory_total,
-        "memory_util": overall_summary.memory_util,
-        "temperature": overall_summary.temperature,
-        "power_draw": overall_summary.power_draw,
-        "data_points": overall_summary.data_points
+    overall_avg_dict = {
+        "utilization_gpu": overall_avg.utilization_gpu,
+        "memory_used": overall_avg.memory_used,
+        "memory_total": overall_avg.memory_total,
+        "memory_util": overall_avg.memory_util,
+        "temperature": overall_avg.temperature,
+        "power_draw": overall_avg.power_draw,
+        "data_points": overall_avg.data_points
     }
     
-    return {"per_gpu": per_gpu, "overall_avg": overall_avg}
+    return {"per_gpu": per_gpu, "overall_avg": overall_avg_dict}
 
 
 @app.get("/api/gpu/ids")

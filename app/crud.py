@@ -335,11 +335,14 @@ def get_gpu_stats_downsampled(db: Session, start: datetime, end: datetime, gpu_i
     return downsampled_stats
 
 
-def get_gpu_stats_summary(db: Session, start: datetime, end: datetime, gpu_id: int = None):
+def get_gpu_stats_summary(db: Session, start: datetime, end: datetime, gpu_ids: list = None):
     """
     查询 GPU 统计数据（时间段内的平均值）
     
     直接在数据库层面进行聚合计算，返回每个 GPU 的统计信息
+    
+    Args:
+        gpu_ids: GPU ID 列表，如果为 None 则查询所有 GPU
     """
     query = db.query(
         models.GPUStat.gpu_id,
@@ -356,8 +359,8 @@ def get_gpu_stats_summary(db: Session, start: datetime, end: datetime, gpu_id: i
         models.GPUStat.timestamp <= end
     )
     
-    if gpu_id is not None:
-        query = query.filter(models.GPUStat.gpu_id == gpu_id)
+    if gpu_ids is not None:
+        query = query.filter(models.GPUStat.gpu_id.in_(gpu_ids))
     
     query = query.group_by(
         models.GPUStat.gpu_id,
@@ -367,11 +370,14 @@ def get_gpu_stats_summary(db: Session, start: datetime, end: datetime, gpu_id: i
     return query.all()
 
 
-def get_gpu_stats_overall_summary(db: Session, start: datetime, end: datetime, gpu_id: int = None):
+def get_gpu_stats_overall_summary(db: Session, start: datetime, end: datetime, gpu_ids: list = None):
     """
     查询 GPU 总体统计数据（所有 GPU 的总平均值）
     
     直接在数据库层面进行聚合计算，返回所有 GPU 的总平均统计信息
+    
+    Args:
+        gpu_ids: GPU ID 列表，如果为 None 则查询所有 GPU
     """
     query = db.query(
         func.avg(models.GPUStat.utilization_gpu).label('utilization_gpu'),
@@ -386,8 +392,8 @@ def get_gpu_stats_overall_summary(db: Session, start: datetime, end: datetime, g
         models.GPUStat.timestamp <= end
     )
     
-    if gpu_id is not None:
-        query = query.filter(models.GPUStat.gpu_id == gpu_id)
+    if gpu_ids is not None:
+        query = query.filter(models.GPUStat.gpu_id.in_(gpu_ids))
     
     return query.first()
 

@@ -532,6 +532,14 @@
         } else {
             container.style.display = 'flex';
             historyDisplayMode = 'separate';
+            // 分别展示模式下，确保至少选中一个 GPU
+            const checkboxes = document.querySelectorAll('#history-gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
+            const selectedGpus = Array.from(checkboxes).filter(cb => cb.checked);
+            
+            // 如果没有选中的 GPU，默认选中第一个
+            if (selectedGpus.length === 0 && checkboxes.length > 0) {
+                checkboxes[0].checked = true;
+            }
         }
         
         // 如果有已查询的数据，重新渲染图表
@@ -577,11 +585,8 @@
         const avgCheckbox = checkboxes[0];
         const gpuCheckboxes = Array.from(checkboxes).slice(1);
         
-        if (avgCheckbox.checked) {
-            gpuCheckboxes.forEach(cb => cb.disabled = true);
-        } else {
-            gpuCheckboxes.forEach(cb => cb.disabled = false);
-        }
+        // 不再禁用 GPU 复选框，允许同时选择平均值和多个 GPU
+        // 平均值模式会显示选中 GPU 的平均值
         
         // 如果有已查询的数据，重新渲染图表
         if (lastQueryData) {
