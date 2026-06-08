@@ -248,13 +248,10 @@
     <div class="chart-container">
         <h2>📈 GPU 实时趋势（最近 5 分钟）</h2>
         <div class="control-panel">
-            <label>展示模式：</label>
-            <select id="gpu-display-mode" onchange="onDisplayModeChange()">
-                <option value="average">平均值</option>
-                <option value="separate">分别展示</option>
-            </select>
+            <button onclick="downloadHistoryChartImage()" class="download-btn">📷 下载图表</button>
+            <button onclick="copyHistoryChartImage()" class="download-btn">📋 复制图表</button>
         </div>
-        <div id="gpu-selector-container" class="gpu-selector" style="display:none;"></div>
+        <div id="gpu-selector-container" class="gpu-selector"></div>
         <div id="param-selector-container" class="param-selector"></div>
         <div id="realtime-chart" style="height: 400px;"></div>
         <div id="realtime-table-container" class="table-container"></div>
@@ -263,17 +260,12 @@
     <div class="chart-container">
         <h2>📅 GPU 历史数据查询</h2>
         <div class="control-panel">
-            <label>展示模式：</label>
-            <select id="history-display-mode" onchange="onHistoryDisplayModeChange()">
-                <option value="average">平均值</option>
-                <option value="separate">分别展示</option>
-            </select>
             <button onclick="downloadHistoryChartImage()" class="download-btn">📷 下载图表</button>
             <button onclick="copyHistoryChartImage()" class="download-btn">📋 复制图表</button>
             <button onclick="downloadHistoryTable()" class="download-btn">📊 下载表格</button>
             <button onclick="copyHistoryTable()" class="download-btn">📋 复制表格</button>
         </div>
-        <div id="history-gpu-selector-container" class="gpu-selector" style="display:none;"></div>
+        <div id="history-gpu-selector-container" class="gpu-selector"></div>
         <div id="history-param-selector-container" class="param-selector"></div>
         <div class="time-picker">
             <div>开始时间：<input type="datetime-local" id="start-time"></div>
@@ -386,7 +378,7 @@
 
     async function fetchGPUIds() {
         try {
-            const res = await fetch('/api/gpu/ids');
+            const res = await fetch('/gpu_monitor/api/v1/gpu/ids');
             if (!res.ok) throw new Error();
             const data = await res.json();
             gpuIds = data.gpu_ids || [];
@@ -402,18 +394,18 @@
         const container = document.getElementById('gpu-selector-container');
         const historyContainer = document.getElementById('history-gpu-selector-container');
         
-        // 实时图表 GPU 选择器 - 默认选中平均值
+        // 实时图表 GPU 选择器 - 默认选中平均值和所有 GPU
         let html = '<label class="gpu-checkbox avg-checkbox"><input type="checkbox" checked onchange="onGpuSelectionChange()"> 平均值</label>';
         gpuIds.forEach(id => {
-            html += `<label class="gpu-checkbox"><input type="checkbox" value="${id}" onchange="onGpuSelectionChange()"> GPU ${id}</label>`;
+            html += `<label class="gpu-checkbox"><input type="checkbox" value="${id}" checked onchange="onGpuSelectionChange()"> GPU ${id}</label>`;
         });
         
         container.innerHTML = html;
         
-        // 历史图表 GPU 选择器 - 默认选中平均值
+        // 历史图表 GPU 选择器 - 默认选中平均值和所有 GPU
         let historyHtml = '<label class="gpu-checkbox avg-checkbox"><input type="checkbox" checked onchange="onHistoryGpuSelectionChange()"> 平均值</label>';
         gpuIds.forEach(id => {
-            historyHtml += `<label class="gpu-checkbox"><input type="checkbox" value="${id}" onchange="onHistoryGpuSelectionChange()"> GPU ${id}</label>`;
+            historyHtml += `<label class="gpu-checkbox"><input type="checkbox" value="${id}" checked onchange="onHistoryGpuSelectionChange()"> GPU ${id}</label>`;
         });
         historyContainer.innerHTML = historyHtml;
     }
@@ -492,54 +484,8 @@
         updateRealtimeChart();
     }
 
-    function onDisplayModeChange() {
-        const mode = document.getElementById('gpu-display-mode').value;
-        const container = document.getElementById('gpu-selector-container');
-        
-        if (mode === 'average') {
-            container.style.display = 'none';
-            displayMode = 'average';
-            selectedGpus = [];
-        } else {
-            container.style.display = 'flex';
-            displayMode = 'separate';
-            const checkboxes = document.querySelectorAll('#gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
-            selectedGpus = Array.from(checkboxes).filter(cb => cb.checked).map(cb => parseInt(cb.value));
-            
-            // 如果没有选中的 GPU，默认选中第一个
-            if (selectedGpus.length === 0 && checkboxes.length > 0) {
-                checkboxes[0].checked = true;
-                selectedGpus = [parseInt(checkboxes[0].value)];
-            }
-        }
-        updateRealtimeChart();
-    }
-
-    function onHistoryDisplayModeChange() {
-        const mode = document.getElementById('history-display-mode').value;
-        const container = document.getElementById('history-gpu-selector-container');
-        
-        if (mode === 'average') {
-            container.style.display = 'none';
-            historyDisplayMode = 'average';
-        } else {
-            container.style.display = 'flex';
-            historyDisplayMode = 'separate';
-            // 分别展示模式下，确保至少选中一个 GPU
-            const checkboxes = document.querySelectorAll('#history-gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
-            const selectedGpus = Array.from(checkboxes).filter(cb => cb.checked);
-            
-            // 如果没有选中的 GPU，默认选中第一个
-            if (selectedGpus.length === 0 && checkboxes.length > 0) {
-                checkboxes[0].checked = true;
-            }
-        }
-        
-        // 如果有已查询的数据，重新渲染图表
-        if (lastQueryData) {
-            renderHistoryChart(lastQueryData);
-        }
-    }
+    // 移除 onDisplayModeChange 和 onHistoryDisplayModeChange 函数
+    // 现在默认显示 GPU 选择器，用户通过勾选"平均值"和 GPU 复选框来控制展示
 
     function onHistoryParamSelectionChange(paramKey) {
         const checkboxes = document.querySelectorAll(`#history-param-selector-container input[value="${paramKey}"]`);
@@ -589,7 +535,7 @@
 
     async function fetchGPUCurrent() {
         try {
-            const res = await fetch('/api/gpu/current');
+            const res = await fetch('/gpu_monitor/api/v1/gpu/current');
             if (!res.ok) throw new Error();
             const data = await res.json();
             
@@ -677,7 +623,7 @@
 
     async function fetchCpuMem() {
         try {
-            const res = await fetch('/api/system/cpu_mem');
+            const res = await fetch('/gpu_monitor/api/v1/system/cpu_mem');
             if (!res.ok) throw new Error();
             const data = await res.json();
             document.getElementById('cpu-util').innerHTML = data.current.cpu_util_percent.toFixed(1) + '%';
@@ -1326,15 +1272,61 @@
         let series = [];
         let legendData = [];
         
-        // 根据展示模式构建 series
-        if (historyDisplayMode === 'average') {
-            // 平均值模式：所有 GPU 已经合并，直接显示
-            console.log('平均值模式');
+        // 检查是否选中了"平均值"选项
+        const avgCheckbox = document.querySelector('#history-gpu-selector-container .avg-checkbox input[type="checkbox"]');
+        const showAverage = avgCheckbox && avgCheckbox.checked;
+        
+        // 检查后端是否已经返回了平均值数据（gpu_id = -1）
+        const hasAvgData = gpuDataMap[-1] !== undefined;
+        
+        if (showAverage && hasAvgData) {
+            // 后端已经返回了平均值数据，直接使用
+            console.log('使用后端返回的平均值数据');
+            const avgData = gpuDataMap[-1];
+            
             selectedParams.forEach(paramKey => {
                 const config = paramConfig[paramKey];
-                const chartData = data.map(d => {
-                    const val = d[config.key];
-                    return val !== undefined ? val : 0;
+                const chartData = avgData.map(d => d[config.key] || 0);
+                
+                series.push({
+                    name: `${config.label} (平均)`,
+                    type: 'line',
+                    data: chartData,
+                    smooth: true
+                });
+                legendData.push(`${config.label} (平均)`);
+            });
+        } else if (showAverage) {
+            // 显示选中 GPU 的平均值（前端计算）
+            console.log('前端计算选中 GPU 的平均值');
+            
+            // 获取选中的 GPU ID
+            const gpuCheckboxes = document.querySelectorAll('#history-gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
+            const selectedGpuIds = Array.from(gpuCheckboxes)
+                .filter(cb => cb.checked)
+                .map(cb => parseInt(cb.value))
+                .filter(id => id >= 0);
+            
+            console.log('选中的 GPU IDs:', selectedGpuIds);
+            
+            // 如果没有选中任何 GPU，使用所有 GPU
+            if (selectedGpuIds.length === 0) {
+                selectedGpuIds.push(...Object.keys(gpuDataMap).map(id => parseInt(id)));
+            }
+            
+            // 计算每个时间点的平均值
+            selectedParams.forEach(paramKey => {
+                const config = paramConfig[paramKey];
+                const chartData = xAxisData.map((_, idx) => {
+                    let sum = 0;
+                    let count = 0;
+                    selectedGpuIds.forEach(gpuId => {
+                        if (gpuDataMap[gpuId] && gpuDataMap[gpuId][idx]) {
+                            sum += gpuDataMap[gpuId][idx][config.key] || 0;
+                            count++;
+                        }
+                    });
+                    return count > 0 ? sum / count : 0;
                 });
                 
                 series.push({
@@ -1346,77 +1338,25 @@
                 legendData.push(`${config.label} (平均)`);
             });
         } else {
-            // 分别展示模式
-            console.log('分别展示模式');
-            
-            // 检查是否选中了"平均值"选项
-            const avgCheckbox = document.querySelector('#history-gpu-selector-container .avg-checkbox input[type="checkbox"]');
-            const showAverage = avgCheckbox && avgCheckbox.checked;
-            
-            if (showAverage) {
-                // 显示选中 GPU 的平均值
-                console.log('显示选中 GPU 的平均值');
+            // 显示每个 GPU 的每个参数
+            console.log('显示每个 GPU 的每个参数');
+            Object.keys(gpuDataMap).forEach(gpuId => {
+                const gpuData = gpuDataMap[gpuId];
+                const gpuName = `GPU${gpuId}`;
                 
-                // 获取选中的 GPU ID
-                const gpuCheckboxes = document.querySelectorAll('#history-gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
-                const selectedGpuIds = Array.from(gpuCheckboxes)
-                    .filter(cb => cb.checked)
-                    .map(cb => parseInt(cb.value));
-                
-                console.log('选中的 GPU IDs:', selectedGpuIds);
-                
-                // 如果没有选中任何 GPU，使用所有 GPU
-                if (selectedGpuIds.length === 0) {
-                    selectedGpuIds.push(...Object.keys(gpuDataMap).map(id => parseInt(id)));
-                }
-                
-                // 计算每个时间点的平均值
                 selectedParams.forEach(paramKey => {
                     const config = paramConfig[paramKey];
-                    const chartData = xAxisData.map((_, idx) => {
-                        let sum = 0;
-                        let count = 0;
-                        selectedGpuIds.forEach(gpuId => {
-                            if (gpuDataMap[gpuId] && gpuDataMap[gpuId][idx]) {
-                                sum += gpuDataMap[gpuId][idx][config.key] || 0;
-                                count++;
-                            }
-                        });
-                        return count > 0 ? sum / count : 0;
-                    });
+                    const chartData = gpuData.map(d => d[config.key] || 0);
                     
                     series.push({
-                        name: `${config.label} (平均)`,
+                        name: `${gpuName} - ${config.label}`,
                         type: 'line',
                         data: chartData,
                         smooth: true
                     });
-                    legendData.push(`${config.label} (平均)`);
+                    legendData.push(`${gpuName} - ${config.label}`);
                 });
-            } else {
-                // 显示每个 GPU 的每个参数
-                console.log('显示每个 GPU 的每个参数');
-                Object.keys(gpuDataMap).forEach(gpuId => {
-                    const gpuData = gpuDataMap[gpuId];
-                    const gpuName = `GPU${gpuId}`;
-                    
-                    selectedParams.forEach(paramKey => {
-                        const config = paramConfig[paramKey];
-                        const chartData = gpuData.map(d => {
-                            const val = d[config.key];
-                            return val !== undefined ? val : 0;
-                        });
-                        
-                        series.push({
-                            name: `${gpuName} - ${config.label}`,
-                            type: 'line',
-                            data: chartData,
-                            smooth: true
-                        });
-                        legendData.push(`${gpuName} - ${config.label}`);
-                    });
-                });
-            }
+            });
         }
         
         console.log('Series 数量:', series.length);
@@ -1468,19 +1408,26 @@
         
         // 构建 GPU ID 参数
         let gpuIdParam = '';
-        if (historyDisplayMode === 'average') {
-            // 检查是否选中了特定 GPU
-            const checkboxes = document.querySelectorAll('#history-gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
-            const selectedGpuIds = Array.from(checkboxes).filter(cb => cb.checked).map(cb => parseInt(cb.value)).filter(id => !isNaN(id));
+        let calculateAvgParam = '';
+        
+        // 检查是否选中了"平均值"选项
+        const avgCheckbox = document.querySelector('#history-gpu-selector-container .avg-checkbox input[type="checkbox"]');
+        const showAverage = avgCheckbox && avgCheckbox.checked;
+        
+        // 获取选中的 GPU ID
+        const checkboxes = document.querySelectorAll('#history-gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
+        const selectedGpuIds = Array.from(checkboxes)
+            .filter(cb => cb.checked)
+            .map(cb => parseInt(cb.value))
+            .filter(id => id >= 0);
+        
+        if (showAverage) {
+            calculateAvgParam = '&calculate_avg=true';
             if (selectedGpuIds.length > 0) {
-                gpuIdParam = `&gpu_id=avg_${selectedGpuIds.join(',')}`;
-            } else {
-                gpuIdParam = '&gpu_id=avg';
+                gpuIdParam = `&gpu_id=${selectedGpuIds.join(',')}`;
             }
         } else {
-            // 分别展示模式，检查是否选中了特定 GPU
-            const checkboxes = document.querySelectorAll('#history-gpu-selector-container input[type="checkbox"]:not(.avg-checkbox)');
-            const selectedGpuIds = Array.from(checkboxes).filter(cb => cb.checked).map(cb => parseInt(cb.value)).filter(id => !isNaN(id));
+            // 分别展示模式
             if (selectedGpuIds.length > 0) {
                 gpuIdParam = `&gpu_id=${selectedGpuIds.join(',')}`;
             }
@@ -1495,7 +1442,7 @@
         const startStr = toISOLocalString(startLocal);
         const endStr = toISOLocalString(endLocal);
         // 添加 max_data_points 参数，限制每个 GPU 返回 1000 个数据点
-        const url = `/api/gpu/history?start=${startStr}&end=${endStr}${gpuIdParam}${paramsParam}&max_data_points=1000`;
+        const url = `/gpu_monitor/api/v1/gpu/history?start=${startStr}&end=${endStr}${gpuIdParam}${calculateAvgParam}${paramsParam}&max_data_points=1000`;
         
         try {
             const res = await fetch(url);
@@ -1529,7 +1476,7 @@
             
             // 获取统计数据用于表格显示
             const statsGpuParam = gpuIdParam ? gpuIdParam.replace('?gpu_id=', '&gpu_id=').replace('&gpu_id=', '&gpu_id=') : '';
-            const statsUrl = `/api/gpu/history/stats?start=${startStr}&end=${endStr}${statsGpuParam}${paramsParam}`;
+            const statsUrl = `/gpu_monitor/api/v1/gpu/history/stats?start=${startStr}&end=${endStr}${statsGpuParam}${paramsParam}`;
             const statsRes = await fetch(statsUrl);
             if (statsRes.ok) {
                 const statsData = await statsRes.json();
@@ -1643,7 +1590,7 @@
         // 使用带时区偏移的格式传递给后端（北京时间 UTC+8）
         const startStr = toISOLocalString(startLocal);
         const endStr = toISOLocalString(endLocal);
-        const url = `/api/system/cpu_mem/history?start=${startStr}&end=${endStr}&max_data_points=1000`;
+        const url = `/gpu_monitor/api/v1/system/cpu_mem/history?start=${startStr}&end=${endStr}&max_data_points=1000`;
         
         try {
             const res = await fetch(url);
@@ -1726,7 +1673,7 @@
             // 使用带时区偏移的格式
             const startStr = toISOLocalString(fiveMinutesAgo);
             const endStr = toISOLocalString(now);
-            const url = `/api/gpu/history?start=${startStr}&end=${endStr}&max_data_points=1000`;
+            const url = `/gpu_monitor/api/v1/gpu/history?start=${startStr}&end=${endStr}&max_data_points=1000`;
             
             console.log('请求 URL:', url);
             const res = await fetch(url);
